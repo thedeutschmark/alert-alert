@@ -1,4 +1,4 @@
-# AlertBox
+# deutschmark's Alert! Alert!
 
 A desktop tool for creating stream alerts from YouTube clips. Download, crop, normalize audio, and export perfectly formatted alert videos.
 

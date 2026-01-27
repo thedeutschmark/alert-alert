@@ -1,5 +1,5 @@
 /**
- * Main application logic for Alert Creator.
+ * Main application logic for deutschmark's Alert! Alert!
  * Manages the 4-step workflow, API calls, and UI state.
  */
 const App = (() => {
