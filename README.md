@@ -1,6 +1,6 @@
 # deutschmark's Alert Creator
 
-A desktop tool for creating stream alerts from YouTube clips. Download, crop to square, normalize audio, and export perfectly formatted alert videos.
+A desktop tool for creating stream alerts from YouTube clips. Download, crop, normalize audio, and export perfectly formatted alert videos.
 
 ![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-Backend-green?logo=flask&logoColor=white)
@@ -9,11 +9,15 @@ A desktop tool for creating stream alerts from YouTube clips. Download, crop to 
 ## ✨ Features
 
 - **YouTube Download** - Download clips directly from YouTube with precise timestamp selection
-- **Square Crop** - Interactive crop preview to select the perfect 720×720 square region
-- **Audio Normalization** - Automatic loudness normalization (EBU R128 compliant, -16 LUFS)
-- **Separate Audio Source** - Optionally use audio from a different YouTube video
-- **High-Quality Output** - Lossless audio processing with single-encode AAC output at 192kbps
-- **End Buffer** - Automatic 2-second still frame buffer at the end of each clip
+- **Multiple Aspect Ratios** - 1:1 (square), 16:9 (wide), 9:16 (vertical), 4:3
+- **Resolution Options** - Export at 480p, 720p, or 1080p
+- **Interactive Crop** - Drag to position, zoom slider to adjust crop size
+- **Audio Normalization** - Automatic loudness normalization (EBU R128, -16 LUFS) - toggleable
+- **Separate Audio Source** - Use audio from a different YouTube video
+- **High-Quality Output** - Lossless audio processing with single-encode AAC at 192kbps
+- **End Buffer** - Configurable still frame buffer at the end (0-5 seconds)
+- **Smart Timestamps** - Type `90` and it auto-formats to `1:30`
+- **Persistent Settings** - Your preferences are saved locally
 
 ## 📋 Requirements
 
@@ -34,10 +38,12 @@ pip install -r requirements.txt
 
 ## 🚀 Quick Start
 
+### Option 1: Run from Source
+
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/deutschmarks-alert-creator.git
-   cd deutschmarks-alert-creator
+   git clone https://github.com/thedeutschmark/deutschmark-s-alert-creator.git
+   cd deutschmark-s-alert-creator
    ```
 
 2. **Install dependencies**
@@ -53,14 +59,42 @@ pip install -r requirements.txt
 4. **Open in browser**
    Navigate to [http://127.0.0.1:5000](http://127.0.0.1:5000)
 
+### Option 2: Standalone EXE
+
+1. Build the executable:
+   ```bash
+   pip install pyinstaller
+   python -m PyInstaller --onefile --windowed --name "AlertCreator" --add-data "static;static" --add-data "temp;temp" --add-data "output;output" app.py
+   ```
+
+2. Run `dist/AlertCreator.exe`
+
 ## 📖 Usage
 
 ### Basic Workflow
 
 1. **Video Source** - Paste a YouTube URL and click Validate
-2. **Timestamps** - Enter start/end times for your clip (e.g., `1:23` to `1:45`)
-3. **Crop Preview** - Drag to position the 720×720 crop area, use the zoom slider to adjust
-4. **Process & Export** - Click Process Video, then download your alert
+2. **Timestamps** - Enter start/end times (e.g., `1:23` to `1:45` or just `90` for 1:30)
+3. **Crop Preview** - Select aspect ratio, drag to position, zoom slider to adjust
+4. **Settings** - Choose resolution, buffer duration, and audio normalization
+5. **Process & Export** - Click Process Video, then download your alert
+
+### Settings
+
+| Setting | Options | Default |
+|---------|---------|---------|
+| **Output Resolution** | 480p, 720p, 1080p | 720p |
+| **End Buffer** | None, 1-5 seconds | 2 seconds |
+| **Audio Normalization** | On/Off | On |
+
+### Aspect Ratios
+
+| Ratio | Use Case |
+|-------|----------|
+| **1:1** | Square stream alerts |
+| **16:9** | Widescreen/landscape |
+| **9:16** | Vertical (TikTok, Stories) |
+| **4:3** | Traditional format |
 
 ### Using Separate Audio Source
 
@@ -79,34 +113,35 @@ The application is designed for maximum audio quality:
 - Loudness normalization is applied on PCM (no generation loss)
 - Audio is encoded to **AAC only once** at the final output stage
 - Final bitrate: **192 kbps** (broadcast quality)
+- Normalization can be disabled to preserve original audio levels
 
 ## 📁 Project Structure
 
 ```
-deutschmarks-alert-creator/
+deutschmark-s-alert-creator/
 ├── app.py              # Flask backend & FFmpeg pipeline
 ├── requirements.txt    # Python dependencies
 ├── static/
 │   ├── index.html      # Main UI
+│   ├── img/
+│   │   └── logo.png    # App logo
 │   ├── css/
 │   │   └── style.css   # Styling
 │   └── js/
 │       ├── app.js      # Main application logic
-│       └── crop.js     # Crop preview functionality
-├── temp/               # Temporary processing files (auto-created)
+│       └── crop.js     # Crop preview with aspect ratios
+├── temp/               # Temporary processing files
 │   ├── downloads/      # Downloaded clips
 │   └── processing/     # Intermediate files
 └── output/             # Final exported alerts
 ```
 
-## ⚙️ Configuration
-
-The application uses sensible defaults:
+## ⚙️ Default Configuration
 
 | Setting | Value | Description |
 |---------|-------|-------------|
-| Output size | 720×720 | Square format for alerts |
-| Audio loudness | -16 LUFS | Broadcast standard |
+| Output resolution | 720p | Scales based on aspect ratio |
+| Audio loudness | -16 LUFS | EBU R128 broadcast standard |
 | Audio bitrate | 192 kbps | High quality AAC |
 | End buffer | 2 seconds | Still frame at end |
 | Video CRF | 23 | Balanced quality/size |
