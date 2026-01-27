@@ -146,6 +146,7 @@ def check_deps():
 
 def run_deps_check():
     """Run dependency checks and return the results dict."""
+    print("Checking system dependencies...")
     results = {}
     tools = [
         ("ffmpeg", FFMPEG, ["-version"]),
@@ -162,13 +163,20 @@ def run_deps_check():
                 "installed": has_output,
                 "version": first_line,
             }
+            if has_output:
+                print(f"  [OK] {name} found: {first_line}")
+            else:
+                print(f"  [MISSING] {name} not found.")
         except FileNotFoundError:
             results[name] = {"installed": False, "version": None}
+            print(f"  [MISSING] {name} not found (FileNotFound).")
         except subprocess.TimeoutExpired:
             results[name] = {"installed": False, "version": None}
+            print(f"  [TIMEOUT] {name} timed out.")
     
     # Update global cache
     DEPS_CACHE.update(results)
+    print("Dependency check complete.")
     return results
 
 
@@ -178,6 +186,8 @@ def run_deps_check():
 def validate_url():
     data = request.get_json()
     url = data.get("url", "").strip()
+    print(f"Validating URL: {url}...")
+
 
     if not url:
         return jsonify({"valid": False, "error": "No URL provided"}), 400
@@ -186,12 +196,15 @@ def validate_url():
         r = run_subprocess([YTDLP, "--dump-json", "--no-download", url], timeout=30)
         
         if r.returncode != 0:
+            print(f"  Validation failed: {r.stderr.strip()[:100]}...")
             return jsonify({"valid": False, "error": r.stderr.strip() or "Invalid URL"})
 
         info = json.loads(r.stdout)
+        title = info.get("title", "Unknown")
+        print(f"  Validation success: {title}")
         return jsonify({
             "valid": True,
-            "title": info.get("title", "Unknown"),
+            "title": title,
             "duration": info.get("duration", 0),
             "thumbnail": info.get("thumbnail", ""),
         })
@@ -252,6 +265,8 @@ def download_clip():
     section = f"*{start_sec}-{end_sec}"
 
     jobs[job_id] = {"status": "downloading", "progress": 0, "stage": "Downloading video clip..."}
+    print(f"Starting download job {job_id} for {url} ({start}-{end})")
+
 
     # Build yt-dlp command with --ffmpeg-location so it can find ffmpeg
     ytdlp_cmd = [
@@ -325,6 +340,7 @@ def download_clip():
             })
         
         jobs[job_id] = {"status": "downloaded", "filename": filename, "use_separate_audio": False}
+        print(f"Download job {job_id} complete: {filename}")
         return jsonify({"job_id": job_id, "filename": filename, "status": "downloaded"})
 
     except subprocess.TimeoutExpired:
@@ -738,6 +754,8 @@ def process_video():
         return jsonify({"error": "Missing job_id"}), 400
 
     jobs[job_id] = {"status": "processing", "progress": 0, "stage": "Starting..."}
+    print(f"Starting processing for job {job_id}...")
+
 
     thread = threading.Thread(
         target=run_processing_pipeline,
@@ -800,7 +818,9 @@ def shutdown():
     func = request.environ.get("werkzeug.server.shutdown")
     if func is None:
         # Fallback for non-Werkzeug servers or threaded mode if needed
+        print("Shutting down (forced exit)...")
         os._exit(0)
+    print("Shutting down server...")
     func()
     return jsonify({"status": "shutting down"})
 
@@ -808,6 +828,13 @@ def shutdown():
 # ── Run ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    print("="*60)
+    print("  DEUTSCHMARK'S ALERT CREATOR")
+    print("  Keeping this window open is normal.")
+    print("  Do not close it until you are finished using the app.")
+    print("  You can minimize this window.")
+    print("="*60)
+
     # Run dependency checks ONCE at startup (before browser opens)
     # This prevents pop-ups from appearing when the browser hits the API
     print("Pre-checking dependencies...")
