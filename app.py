@@ -389,7 +389,7 @@ def run_ffmpeg(args, env, timeout=120):
     return r
 
 
-def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audio=False,
+def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, use_separate_audio=False,
                             resolution=720, buffer_duration=2, normalize_audio=True):
     """Run the full ffmpeg pipeline in a background thread.
     
@@ -399,13 +399,25 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
     - Only encode to AAC once at the very end at 192kbps
     - If using separate audio source, replace video audio before processing
     
+    Args:
+    - crop_x, crop_y: top-left corner of crop region in source pixels
+    - crop_width, crop_height: dimensions of crop region in source pixels
+    
     Settings:
-    - resolution: output size in pixels (480, 720, 1080)
+    - resolution: base output size (width for wide, height for tall)
     - buffer_duration: seconds of still frame buffer at end
     - normalize_audio: whether to apply loudness normalization
     """
-    # Resolution determines output size
-    output_size = int(resolution)
+    # Calculate output dimensions based on crop aspect ratio
+    crop_aspect = crop_width / crop_height
+    if crop_aspect >= 1:
+        # Wide or square: resolution is the width
+        output_width = int(resolution)
+        output_height = int(resolution / crop_aspect)
+    else:
+        # Tall: resolution is the height
+        output_height = int(resolution)
+        output_width = int(resolution * crop_aspect)
     env = get_env()
     try:
         job_dir = DOWNLOADS_DIR / job_id
@@ -466,9 +478,10 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
                 sample_rate = audio_stream.get("sample_rate", "48000")
 
         # Clamp crop parameters to valid range
-        crop_size = min(crop_size, src_width, src_height)
-        crop_x = max(0, min(crop_x, src_width - crop_size))
-        crop_y = max(0, min(crop_y, src_height - crop_size))
+        crop_width = min(crop_width, src_width)
+        crop_height = min(crop_height, src_height)
+        crop_x = max(0, min(crop_x, src_width - crop_width))
+        crop_y = max(0, min(crop_y, src_height - crop_height))
 
         # ── Stage 1: Crop video + extract/replace audio to PCM ──
         jobs[job_id] = {"status": "processing", "progress": 10, "stage": "Cropping video..."}
@@ -477,7 +490,7 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
         # Crop video only (no audio)
         run_ffmpeg([
             FFMPEG, "-i", input_file,
-            "-vf", f"crop={crop_size}:{crop_size}:{crop_x}:{crop_y},scale={output_size}:{output_size}",
+            "-vf", f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y},scale={output_width}:{output_height}",
             "-an", "-y", cropped_video,
         ], env=env)
         
@@ -572,7 +585,7 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
                 FFMPEG, "-loop", "1", "-i", last_frame,
                 "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
                 "-c:v", "libx264", "-t", str(buffer_duration), "-pix_fmt", "yuv420p",
-                "-vf", f"scale={output_size}:{output_size}",
+                "-vf", f"scale={output_width}:{output_height}",
                 "-r", str(round(fps)), "-c:a", "pcm_s16le",
                 "-shortest", "-y", still_buffer,
             ], env=env, timeout=30)
@@ -624,7 +637,9 @@ def process_video():
     crop = data.get("crop", {})
     crop_x = int(crop.get("x", 0))
     crop_y = int(crop.get("y", 0))
-    crop_size = int(crop.get("size", 720))
+    # Support both 'size' (legacy square) and 'width'/'height' (new aspect ratios)
+    crop_width = int(crop.get("width", crop.get("size", 720)))
+    crop_height = int(crop.get("height", crop.get("size", 720)))
     use_separate_audio = data.get("use_separate_audio", False)
     
     # Settings
@@ -640,7 +655,7 @@ def process_video():
 
     thread = threading.Thread(
         target=run_processing_pipeline,
-        args=(job_id, crop_x, crop_y, crop_size, use_separate_audio),
+        args=(job_id, crop_x, crop_y, crop_width, crop_height, use_separate_audio),
         kwargs={"resolution": resolution, "buffer_duration": buffer_duration, "normalize_audio": normalize_audio},
         daemon=True,
     )

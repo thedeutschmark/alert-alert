@@ -1,8 +1,9 @@
 /**
  * Interactive crop preview component.
- * Displays a video frame with a draggable, resizable square overlay.
+ * Displays a video frame with a draggable, resizable overlay.
+ * Supports multiple aspect ratios: 1:1, 16:9, 9:16, 4:3
  * The area outside the crop is darkened.
- * Zoom slider controls the crop square size (smaller = more zoomed in).
+ * Zoom slider controls the crop size (smaller = more zoomed in).
  */
 class CropPreview {
     constructor() {
@@ -12,6 +13,7 @@ class CropPreview {
         this.coordsDisplay = document.getElementById("crop-coords");
         this.zoomSlider = document.getElementById("zoom-slider");
         this.zoomValue = document.getElementById("zoom-value");
+        this.ratioButtons = document.getElementById("ratio-buttons");
 
         this.videoWidth = 0;
         this.videoHeight = 0;
@@ -19,7 +21,11 @@ class CropPreview {
         this.displayHeight = 0;
         this.scale = 1;
 
-        // Zoom: 100% = full min-dimension square, lower = smaller crop (more zoomed)
+        // Aspect ratio (width:height) - default 1:1
+        this.aspectRatio = 1; // width / height
+        this.ratioLabel = "1:1";
+
+        // Zoom: 100% = max size that fits, lower = smaller crop (more zoomed)
         this.zoomPct = 100;
 
         this.isDragging = false;
@@ -55,7 +61,7 @@ class CropPreview {
             this.container.style.width = this.displayWidth + "px";
             this.container.style.height = this.displayHeight + "px";
 
-            // Apply current zoom
+            // Apply current zoom and ratio
             this._applyZoom();
             this.overlay.style.display = "block";
         });
@@ -65,15 +71,31 @@ class CropPreview {
      * Returns crop parameters in original video pixel coordinates.
      */
     getCropParams() {
-        const cropDisplaySize = parseFloat(this.overlay.style.width);
+        const cropDisplayWidth = parseFloat(this.overlay.style.width);
+        const cropDisplayHeight = parseFloat(this.overlay.style.height);
         const displayX = parseFloat(this.overlay.style.left) || 0;
         const displayY = parseFloat(this.overlay.style.top) || 0;
 
         return {
             x: Math.round(displayX / this.scale),
             y: Math.round(displayY / this.scale),
-            size: Math.round(cropDisplaySize / this.scale),
+            width: Math.round(cropDisplayWidth / this.scale),
+            height: Math.round(cropDisplayHeight / this.scale),
+            ratio: this.ratioLabel,
         };
+    }
+
+    /**
+     * Set aspect ratio from string like "1:1", "16:9", etc.
+     */
+    setAspectRatio(ratioStr) {
+        const [w, h] = ratioStr.split(":").map(Number);
+        this.aspectRatio = w / h;
+        this.ratioLabel = ratioStr;
+
+        if (this.displayWidth > 0) {
+            this._applyZoom();
+        }
     }
 
     _setupEvents() {
@@ -106,32 +128,76 @@ class CropPreview {
                 }
             });
         }
+
+        // Ratio buttons
+        if (this.ratioButtons) {
+            this.ratioButtons.addEventListener("click", (e) => {
+                if (e.target.classList.contains("ratio-btn")) {
+                    // Update active state
+                    this.ratioButtons.querySelectorAll(".ratio-btn").forEach(btn => {
+                        btn.classList.remove("active");
+                    });
+                    e.target.classList.add("active");
+
+                    // Apply ratio
+                    const ratio = e.target.dataset.ratio;
+                    this.setAspectRatio(ratio);
+                }
+            });
+        }
     }
 
     _applyZoom() {
-        const maxCropDisplay = Math.min(this.displayWidth, this.displayHeight);
-        const minCropDisplay = maxCropDisplay * 0.1; // 10% minimum
-        const cropDisplaySize = minCropDisplay + (maxCropDisplay - minCropDisplay) * (this.zoomPct / 100);
+        // Calculate max crop dimensions that fit within the display area
+        // while maintaining the aspect ratio
+        let maxCropWidth, maxCropHeight;
 
-        const oldSize = parseFloat(this.overlay.style.width) || cropDisplaySize;
+        if (this.aspectRatio >= 1) {
+            // Wide or square: width is limiting factor
+            maxCropWidth = this.displayWidth;
+            maxCropHeight = this.displayWidth / this.aspectRatio;
+            if (maxCropHeight > this.displayHeight) {
+                maxCropHeight = this.displayHeight;
+                maxCropWidth = this.displayHeight * this.aspectRatio;
+            }
+        } else {
+            // Tall: height is limiting factor
+            maxCropHeight = this.displayHeight;
+            maxCropWidth = this.displayHeight * this.aspectRatio;
+            if (maxCropWidth > this.displayWidth) {
+                maxCropWidth = this.displayWidth;
+                maxCropHeight = this.displayWidth / this.aspectRatio;
+            }
+        }
+
+        // Min size is 10% of max
+        const minCropWidth = maxCropWidth * 0.1;
+        const minCropHeight = maxCropHeight * 0.1;
+
+        // Interpolate based on zoom percentage
+        const cropWidth = minCropWidth + (maxCropWidth - minCropWidth) * (this.zoomPct / 100);
+        const cropHeight = minCropHeight + (maxCropHeight - minCropHeight) * (this.zoomPct / 100);
+
+        // Get old position to maintain center
+        const oldWidth = parseFloat(this.overlay.style.width) || cropWidth;
+        const oldHeight = parseFloat(this.overlay.style.height) || cropHeight;
         const oldX = parseFloat(this.overlay.style.left) || 0;
         const oldY = parseFloat(this.overlay.style.top) || 0;
 
-        // Keep center position when resizing
-        const oldCenterX = oldX + oldSize / 2;
-        const oldCenterY = oldY + oldSize / 2;
+        const oldCenterX = oldX + oldWidth / 2;
+        const oldCenterY = oldY + oldHeight / 2;
 
-        let newX = oldCenterX - cropDisplaySize / 2;
-        let newY = oldCenterY - cropDisplaySize / 2;
+        let newX = oldCenterX - cropWidth / 2;
+        let newY = oldCenterY - cropHeight / 2;
 
         // Clamp to bounds
-        const maxX = this.displayWidth - cropDisplaySize;
-        const maxY = this.displayHeight - cropDisplaySize;
+        const maxX = this.displayWidth - cropWidth;
+        const maxY = this.displayHeight - cropHeight;
         newX = Math.max(0, Math.min(maxX, newX));
         newY = Math.max(0, Math.min(maxY, newY));
 
-        this.overlay.style.width = cropDisplaySize + "px";
-        this.overlay.style.height = cropDisplaySize + "px";
+        this.overlay.style.width = cropWidth + "px";
+        this.overlay.style.height = cropHeight + "px";
         this.overlay.style.left = newX + "px";
         this.overlay.style.top = newY + "px";
 
@@ -171,9 +237,10 @@ class CropPreview {
         const dx = clientX - this.dragStartX;
         const dy = clientY - this.dragStartY;
 
-        const cropSize = parseFloat(this.overlay.style.width);
-        const maxX = this.displayWidth - cropSize;
-        const maxY = this.displayHeight - cropSize;
+        const cropWidth = parseFloat(this.overlay.style.width);
+        const cropHeight = parseFloat(this.overlay.style.height);
+        const maxX = this.displayWidth - cropWidth;
+        const maxY = this.displayHeight - cropHeight;
 
         const newX = Math.max(0, Math.min(maxX, this.overlayStartX + dx));
         const newY = Math.max(0, Math.min(maxY, this.overlayStartY + dy));
@@ -193,7 +260,7 @@ class CropPreview {
     _updateCoords() {
         const params = this.getCropParams();
         if (this.coordsDisplay) {
-            this.coordsDisplay.textContent = `Crop: X=${params.x} Y=${params.y} Size=${params.size}`;
+            this.coordsDisplay.textContent = `Crop: ${params.width}×${params.height} @ (${params.x}, ${params.y})`;
         }
     }
 }

@@ -477,6 +477,42 @@ button:disabled {
     font-variant-numeric: tabular-nums;
 }
 
+.ratio-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.ratio-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.ratio-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.ratio-btn:hover {
+    border-color: var(--text-muted);
+    color: var(--text);
+    transform: none;
+}
+
+.ratio-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #000;
+}
+
 input[type="range"] {
     flex: 1;
     accent-color: var(--accent);
