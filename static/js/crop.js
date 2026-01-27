@@ -14,6 +14,7 @@ class CropPreview {
         this.zoomSlider = document.getElementById("zoom-slider");
         this.zoomValue = document.getElementById("zoom-value");
         this.ratioButtons = document.getElementById("ratio-buttons");
+        this.placeholder = document.getElementById("crop-placeholder");
 
         this.videoWidth = 0;
         this.videoHeight = 0;
@@ -43,12 +44,27 @@ class CropPreview {
     }
 
     /**
+     * Clear preview and show placeholder
+     */
+    reset() {
+        if (this.placeholder) this.placeholder.classList.remove("hidden");
+        this.image.classList.add("hidden");
+        this.overlay.classList.add("hidden");
+        this.image.src = "";
+    }
+
+    /**
      * Initialize with actual video dimensions.
      * Call after the preview image has loaded.
      */
     initialize(videoWidth, videoHeight) {
         this.videoWidth = videoWidth;
         this.videoHeight = videoHeight;
+
+        // Hide placeholder, show image
+        if (this.placeholder) this.placeholder.classList.add("hidden");
+        this.image.classList.remove("hidden");
+        this.overlay.classList.remove("hidden");
 
         // Wait for image to render, then measure
         requestAnimationFrame(() => {

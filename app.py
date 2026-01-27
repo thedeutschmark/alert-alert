@@ -9,9 +9,22 @@ import threading
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file, send_from_directory
 
-app = Flask(__name__, static_folder="static")
+import sys
+import webbrowser
 
-BASE_DIR = Path(__file__).parent.resolve()
+# Handle PyInstaller paths
+if getattr(sys, 'frozen', False):
+    # If running as EXE, use sys._MEIPASS for internal assets (static)
+    # and sys.executable parent for user files (output/temp)
+    INTERNAL_DIR = Path(sys._MEIPASS)
+    BASE_DIR = Path(sys.executable).parent.resolve()
+else:
+    # Running from source
+    INTERNAL_DIR = Path(__file__).parent.resolve()
+    BASE_DIR = INTERNAL_DIR
+
+app = Flask(__name__, static_folder=str(INTERNAL_DIR / "static"))
+
 TEMP_DIR = BASE_DIR / "temp"
 DOWNLOADS_DIR = TEMP_DIR / "downloads"
 PROCESSING_DIR = TEMP_DIR / "processing"
@@ -698,10 +711,16 @@ def cleanup(job_id):
 # ── Run ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("deutschmark's Alert Creator")
+    print("deutschmark's AlertBox")
     print(f"  ffmpeg:  {FFMPEG}")
     print(f"  ffprobe: {FFPROBE}")
     print(f"  yt-dlp:  {YTDLP}")
-    print(f"  deno:    {DENO}")
     print(f"  Running at http://127.0.0.1:5000")
-    app.run(debug=True, port=5000)
+    
+    # Auto-open browser
+    if getattr(sys, 'frozen', False):
+        threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
+        app.run(debug=False, port=5000)
+    else:
+        # Debug mode for development
+        app.run(debug=True, port=5000)

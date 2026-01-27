@@ -156,8 +156,11 @@
             <div class="step-content">
                 <div id="crop-wrapper">
                     <div id="crop-container">
-                        <img id="crop-image" draggable="false" alt="Video frame preview">
-                        <div id="crop-overlay"></div>
+                        <div id="crop-placeholder">
+                            <span>Enter video URL and timestamps to verify preview</span>
+                        </div>
+                        <img id="crop-image" draggable="false" alt="Video frame preview" class="hidden">
+                        <div id="crop-overlay" class="hidden"></div>
                     </div>
                 </div>
                 <div class="crop-controls">
