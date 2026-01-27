@@ -9,7 +9,10 @@ A desktop tool for creating stream alerts from YouTube clips. Download, crop, no
 ## ✨ Features
 
 - **YouTube Download** - Download clips directly from YouTube with precise timestamp selection
-- **Multiple Aspect Ratios** - 1:1 (square), 16:9 (wide), 9:16 (vertical), 4:3
+- **Native Desktop App** - Standalone GUI window (dark mode) for a premium experience
+- **Live Video Preview** - Verify crops with real-time video playback and audio (no more static images)
+- **Precision Trimming** - Fine-tune start and end times with dual sliders
+- **Multiple Aspect Ratios** - 1:1, 16:9, 9:16, 4:3
 - **Resolution Options** - Export at 480p, 720p, or 1080p
 - **Interactive Crop** - Drag to position, zoom slider to adjust crop size
 - **Audio Normalization** - Automatic loudness normalization (EBU R128, -16 LUFS) - toggleable

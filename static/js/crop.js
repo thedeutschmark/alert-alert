@@ -8,13 +8,17 @@
 class CropPreview {
     constructor() {
         this.container = document.getElementById("crop-container");
-        this.image = document.getElementById("crop-image");
+        this.video = document.getElementById("crop-video");
         this.overlay = document.getElementById("crop-overlay");
         this.coordsDisplay = document.getElementById("crop-coords");
         this.zoomSlider = document.getElementById("zoom-slider");
         this.zoomValue = document.getElementById("zoom-value");
         this.ratioButtons = document.getElementById("ratio-buttons");
         this.placeholder = document.getElementById("crop-placeholder");
+
+        // Controls
+        this.playBtn = document.getElementById("preview-play-btn");
+        this.muteBtn = document.getElementById("preview-mute-btn");
 
         this.videoWidth = 0;
         this.videoHeight = 0;
@@ -41,6 +45,28 @@ class CropPreview {
         this._onTouchEnd = this._onTouchEnd.bind(this);
 
         this._setupEvents();
+        this._setupMediaControls();
+    }
+
+    _setupMediaControls() {
+        if (this.playBtn) {
+            this.playBtn.addEventListener("click", () => {
+                if (this.video.paused) {
+                    this.video.play();
+                    this.playBtn.textContent = "⏸ Pause";
+                } else {
+                    this.video.pause();
+                    this.playBtn.textContent = "▶ Play";
+                }
+            });
+        }
+
+        if (this.muteBtn) {
+            this.muteBtn.addEventListener("click", () => {
+                this.video.muted = !this.video.muted;
+                this.muteBtn.textContent = this.video.muted ? "🔇 Unmute" : "🔊 Mute";
+            });
+        }
     }
 
     /**
@@ -48,9 +74,11 @@ class CropPreview {
      */
     reset() {
         if (this.placeholder) this.placeholder.classList.remove("hidden");
-        this.image.classList.add("hidden");
+        this.video.classList.add("hidden");
         this.overlay.classList.add("hidden");
-        this.image.src = "";
+        this.video.pause();
+        this.video.src = "";
+        if (this.playBtn) this.playBtn.textContent = "▶ Play";
     }
 
     /**
@@ -61,19 +89,32 @@ class CropPreview {
         this.videoWidth = videoWidth;
         this.videoHeight = videoHeight;
 
-        // Hide placeholder, show image
+        // Hide placeholder, show video
         if (this.placeholder) this.placeholder.classList.add("hidden");
-        this.image.classList.remove("hidden");
+        this.video.classList.remove("hidden");
         this.overlay.classList.remove("hidden");
 
-        // Wait for image to render, then measure
+        // Reset controls
+        this.video.currentTime = 0;
+        this.video.play().catch(() => { }); // Auto-play if possible
+        if (this.playBtn) this.playBtn.textContent = "⏸ Pause";
+
+        // Wait for render layout
         requestAnimationFrame(() => {
-            const rect = this.image.getBoundingClientRect();
-            this.displayWidth = rect.width;
-            this.displayHeight = rect.height;
+            const rect = this.video.getBoundingClientRect();
+            // Fallback to video dimensions if rect is 0 (hidden)
+            this.displayWidth = rect.width || videoWidth;
+            this.displayHeight = rect.height || videoHeight;
+
+            if (this.displayWidth === 0) {
+                // Force a layout read if still 0
+                this.displayWidth = this.video.videoWidth;
+                this.displayHeight = this.video.videoHeight;
+            }
+
             this.scale = this.displayWidth / this.videoWidth;
 
-            // Set container size to match image
+            // Set container size to match video
             this.container.style.width = this.displayWidth + "px";
             this.container.style.height = this.displayHeight + "px";
 

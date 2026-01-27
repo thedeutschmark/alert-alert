@@ -17,6 +17,10 @@ const App = (() => {
     let audioValidated = false;
     let useSeparateAudio = false;
 
+    // Trim state
+    let trimStart = 0;
+    let trimEnd = 0;
+
     // ── Helpers ─────────────────────────────────────────────────
 
     function $(id) {
@@ -161,8 +165,12 @@ const App = (() => {
             $(id).addEventListener("blur", (e) => formatTimestampInput(e.target));
         });
 
-        // Frame scrubber
-        $("frame-scrubber").addEventListener("input", debounce(onFrameScrub, 300));
+        // Trim sliders
+        $("trim-start").addEventListener("input", updateTrim);
+        $("trim-end").addEventListener("input", updateTrim);
+
+        // Frame scrubber removed
+        // $("frame-scrubber").addEventListener("input", debounce(onFrameScrub, 300));
 
         // Allow Enter to validate
         $("url-input").addEventListener("keydown", (e) => {
@@ -376,8 +384,8 @@ const App = (() => {
             // Get video info
             videoInfo = await api(`/api/video-info/${jobId}`);
 
-            // Load first preview frame
-            await loadPreviewFrame(0);
+            // Load video preview
+            loadVideoPreview();
 
             hide("download-status");
             enableStep(3);
@@ -393,37 +401,93 @@ const App = (() => {
 
     // ── Step 3: Crop Preview ────────────────────────────────────
 
-    async function loadPreviewFrame(timestamp) {
-        try {
-            const resp = await fetch("/api/preview-frame", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ job_id: jobId, timestamp }),
-            });
+    function loadVideoPreview() {
+        if (!cropPreview) {
+            cropPreview = new CropPreview();
+        }
 
-            if (!resp.ok) return;
+        // Reset previous state
+        cropPreview.reset();
 
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            const img = $("crop-image");
+        const video = document.getElementById("crop-video");
 
-            img.onload = () => {
-                if (!cropPreview) {
-                    cropPreview = new CropPreview();
-                }
-                cropPreview.initialize(videoInfo.width, videoInfo.height);
-            };
-            img.src = url;
-        } catch (e) {
-            console.error("Failed to load preview frame:", e);
+        // Set up one-time listener for metadata load
+        video.onloadedmetadata = () => {
+            cropPreview.initialize(video.videoWidth, video.videoHeight);
+        };
+
+        video.onerror = () => {
+            console.error("Video load error");
+            showError("step2-error", "Failed to load video preview.");
+        };
+
+        // Start loading
+        video.src = `/api/serve-clip/${jobId}`;
+
+        video.onloadedmetadata = () => {
+            cropPreview.initialize(video.videoWidth, video.videoHeight);
+
+            // Init trim sliders based on duration
+            const dur = video.duration;
+            trimStart = 0;
+            trimEnd = dur;
+
+            $("trim-start").max = dur;
+            $("trim-end").max = dur;
+            $("trim-start").value = 0;
+            $("trim-end").value = dur;
+            $("trim-start").step = 0.1; // 100ms precision
+            $("trim-end").step = 0.1;
+
+            updateTrimDisplay();
+        };
+
+        // Loop within trim
+        video.ontimeupdate = () => {
+            if (video.currentTime < trimStart) {
+                video.currentTime = trimStart;
+            }
+            if (video.currentTime >= trimEnd) {
+                video.currentTime = trimStart;
+                if (video.paused) video.play().catch(() => { });
+            }
+        };
+    }
+
+    function updateTrim(e) {
+        let tStart = parseFloat($("trim-start").value);
+        let tEnd = parseFloat($("trim-end").value);
+        const duration = parseFloat($("trim-end").max);
+
+        // Enforce constraints
+        if (e && e.target.id === "trim-start") {
+            if (tStart >= tEnd) tStart = tEnd - 0.5;
+        } else if (e && e.target.id === "trim-end") {
+            if (tEnd <= tStart) tEnd = tStart + 0.5;
+        }
+
+        // Clamp
+        tStart = Math.max(0, tStart);
+        tEnd = Math.min(duration, tEnd);
+
+        trimStart = tStart;
+        trimEnd = tEnd;
+
+        // Update UI logic
+        $("trim-start").value = tStart;
+        $("trim-end").value = tEnd;
+        updateTrimDisplay();
+
+        // Jump video to start if we engaged start slider
+        if (e && e.target.id === "trim-start") {
+            const video = document.getElementById("crop-video");
+            video.currentTime = tStart;
         }
     }
 
-    function onFrameScrub() {
-        if (!videoInfo || !jobId) return;
-        const pct = parseInt($("frame-scrubber").value) / 100;
-        const timestamp = pct * videoInfo.duration;
-        loadPreviewFrame(timestamp);
+    function updateTrimDisplay() {
+        $("trim-start-val").textContent = trimStart.toFixed(1) + "s";
+        $("trim-end-val").textContent = trimEnd.toFixed(1) + "s";
     }
 
     // ── Step 4: Process & Export ─────────────────────────────────
@@ -447,6 +511,8 @@ const App = (() => {
                 body: JSON.stringify({
                     job_id: jobId,
                     crop: cropParams,
+                    trim_start: trimStart,
+                    trim_end: trimEnd,
                     use_separate_audio: useSeparateAudio,
                     settings: getSettings(),
                 }),

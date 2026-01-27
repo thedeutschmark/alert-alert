@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
 import webbrowser
+import webview
 
 # Handle PyInstaller paths
 if getattr(sys, 'frozen', False):
@@ -422,7 +423,7 @@ def run_ffmpeg(args, env, timeout=120):
     return r
 
 
-def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, use_separate_audio=False,
+def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, trim_start=0, trim_end=0, use_separate_audio=False,
                             resolution=720, buffer_duration=2, normalize_audio=True):
     """Run the full ffmpeg pipeline in a background thread.
     
@@ -432,9 +433,12 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, use
     - Only encode to AAC once at the very end at 192kbps
     - If using separate audio source, replace video audio before processing
     
+
     Args:
     - crop_x, crop_y: top-left corner of crop region in source pixels
     - crop_width, crop_height: dimensions of crop region in source pixels
+    - trim_start: start time in seconds (0-based)
+    - trim_end: end time in seconds (0-based)
     
     Settings:
     - resolution: base output size (width for wide, height for tall)
@@ -521,22 +525,40 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, use
         cropped_video = str(proc_dir / "cropped_video.mp4")
         
         # Crop video only (no audio)
-        run_ffmpeg([
-            FFMPEG, "-i", input_file,
+        # Apply trim if needed
+        vid_input_args = [FFMPEG, "-i", input_file]
+        # Use -ss / -to as Output options (after -i) for frame-accurate processing
+        # Note: -ss before -i is faster but less accurate. We want accuracy.
+        vid_trim_args = []
+        if trim_start > 0:
+            vid_trim_args.extend(["-ss", str(trim_start)])
+        if trim_end > 0 and trim_end > trim_start:
+             vid_trim_args.extend(["-t", str(trim_end - trim_start)])
+
+        vid_cmd = vid_input_args + vid_trim_args + [
             "-vf", f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y},scale={output_width}:{output_height}",
             "-an", "-y", cropped_video,
-        ], env=env)
+        ]
+        run_ffmpeg(vid_cmd, env=env)
         
         # Extract audio to lossless PCM WAV (from source or separate file)
         jobs[job_id] = {"status": "processing", "progress": 20, "stage": "Extracting audio..."}
         raw_audio = str(proc_dir / "raw_audio.wav")
         audio_source = separate_audio_file if separate_audio_file else input_file
         
-        run_ffmpeg([
-            FFMPEG, "-i", audio_source,
+        aud_input_args = [FFMPEG, "-i", audio_source]
+        aud_trim_args = []
+        if trim_start > 0:
+            aud_trim_args.extend(["-ss", str(trim_start)])
+        if trim_end > 0 and trim_end > trim_start:
+             aud_trim_args.extend(["-t", str(trim_end - trim_start)])
+
+        aud_cmd = aud_input_args + aud_trim_args + [
             "-vn", "-acodec", "pcm_s16le", "-ar", sample_rate, "-ac", "2",
             "-y", raw_audio,
-        ], env=env)
+        ]
+        
+        run_ffmpeg(aud_cmd, env=env)
 
         # ── Stage 2: Audio processing ──
         if normalize_audio:
@@ -673,6 +695,8 @@ def process_video():
     # Support both 'size' (legacy square) and 'width'/'height' (new aspect ratios)
     crop_width = int(crop.get("width", crop.get("size", 720)))
     crop_height = int(crop.get("height", crop.get("size", 720)))
+    trim_start = float(data.get("trim_start", 0))
+    trim_end = float(data.get("trim_end", 0))
     use_separate_audio = data.get("use_separate_audio", False)
     
     # Settings
@@ -688,7 +712,7 @@ def process_video():
 
     thread = threading.Thread(
         target=run_processing_pipeline,
-        args=(job_id, crop_x, crop_y, crop_width, crop_height, use_separate_audio),
+        args=(job_id, crop_x, crop_y, crop_width, crop_height, trim_start, trim_end, use_separate_audio),
         kwargs={"resolution": resolution, "buffer_duration": buffer_duration, "normalize_audio": normalize_audio},
         daemon=True,
     )
@@ -717,6 +741,18 @@ def download_result(job_id):
     return send_file(str(filepath), as_attachment=True, download_name=filename)
 
 
+# ── Serve source clip (for preview) ─────────────────────────────
+
+@app.route("/api/serve-clip/<job_id>")
+def serve_clip(job_id):
+    job_dir = DOWNLOADS_DIR / job_id
+    files = list(job_dir.glob("clip.*"))
+    if not files:
+        return jsonify({"error": "File not found"}), 404
+    # Ensure range requests work (Flask send_file supports this by default)
+    return send_file(str(files[0]))
+
+
 # ── Cleanup ─────────────────────────────────────────────────────
 
 @app.route("/api/cleanup/<job_id>", methods=["POST"])
@@ -735,12 +771,22 @@ if __name__ == "__main__":
     print(f"  ffmpeg:  {FFMPEG}")
     print(f"  ffprobe: {FFPROBE}")
     print(f"  yt-dlp:  {YTDLP}")
-    print(f"  Running at http://127.0.0.1:5000")
     
-    # Auto-open browser
-    if getattr(sys, 'frozen', False):
-        threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
-        app.run(debug=False, port=5000)
-    else:
-        # Debug mode for development
-        app.run(debug=True, port=5000)
+    # Run Flask in a background thread
+    t = threading.Thread(target=lambda: app.run(port=5000, debug=False, use_reloader=False))
+    t.daemon = True
+    t.start()
+
+    # Launch Native GUI Window
+    # Provide a dedicated window like Stacher
+    webview.create_window(
+        "deutschmark's AlertBox", 
+        "http://127.0.0.1:5000",
+        width=1280,
+        height=900,
+        min_size=(900, 700),
+        background_color='#0f0f0f',
+        text_select=False
+    )
+    
+    webview.start(debug=False)

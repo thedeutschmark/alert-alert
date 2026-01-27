@@ -417,7 +417,48 @@ button:disabled {
     background: var(--accent-green-hover);
 }
 
-/* ── Info labels ──────────────────────────────────────────────── */
+/* ── Control Buttons ──────────────────────────────────────────── */
+.control-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.control-btn {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 80px;
+}
+
+.control-btn:hover {
+    background: var(--border);
+}
+
+.control-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--bg-base);
+}
+
+#crop-video {
+    display: block;
+    max-width: 100%;
+    pointer-events: none;
+    /* Let clicks pass through to overlay overlay is properly handled separately, but actually we want overlay on top */
+}
+
+.trim-controls {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
 .info-label {
     font-size: 13px;
     color: var(--text-muted);
