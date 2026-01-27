@@ -115,6 +115,7 @@ def run_subprocess(cmd, timeout=30, text=True):
         # Prevent console window from appearing
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
         kwargs["startupinfo"] = startupinfo
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     
@@ -130,14 +131,22 @@ def index():
 
 # ── Dependency check ────────────────────────────────────────────
 
+
+# Global cache for dependency results
+DEPS_CACHE = {}
+
 @app.route("/api/check-deps")
 def check_deps():
-    results = {}
-    # ffmpeg/ffprobe use -version (single dash), yt-dlp uses --version
-    # Cache to prevent repeated popups/checks
-    if getattr(check_deps, "cached_results", None):
-        return jsonify(check_deps.cached_results)
+    # If the cache is already populated (should be from startup), return it
+    if DEPS_CACHE:
+        return jsonify(DEPS_CACHE)
+        
+    # Fallback if not populated
+    return jsonify(run_deps_check())
 
+def run_deps_check():
+    """Run dependency checks and return the results dict."""
+    results = {}
     tools = [
         ("ffmpeg", FFMPEG, ["-version"]),
         ("ffprobe", FFPROBE, ["-version"]),
@@ -157,9 +166,10 @@ def check_deps():
             results[name] = {"installed": False, "version": None}
         except subprocess.TimeoutExpired:
             results[name] = {"installed": False, "version": None}
-            
-    check_deps.cached_results = results
-    return jsonify(results)
+    
+    # Update global cache
+    DEPS_CACHE.update(results)
+    return results
 
 
 # ── Validate YouTube URL ────────────────────────────────────────
@@ -804,6 +814,11 @@ if __name__ == "__main__":
         sys.stdout = open(log_path, "a")
         sys.stderr = open(log_path, "a")
     
+    # Run dependency checks ONCE at startup (before browser opens)
+    # This prevents pop-ups from appearing when the browser hits the API
+    print("Pre-checking dependencies...")
+    run_deps_check()
+
     # Open the browser
     webbrowser.open("http://127.0.0.1:5000")
     
