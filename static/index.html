@@ -161,7 +161,16 @@
                 <div id="crop-wrapper">
                     <div id="crop-container">
                         <div id="crop-placeholder">
-                            <span>Enter video URL and timestamps to verify preview</span>
+                            <div class="placeholder-content">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                                    style="margin-bottom: 12px; color: var(--text-muted);">
+                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                                </svg>
+                                <span>Enter video URL and timestamps to verify preview</span>
+                            </div>
                         </div>
                         <video id="crop-video" class="hidden" loop muted playsinline></video>
                         <div id="crop-overlay" class="hidden"></div>
