@@ -1,4 +1,4 @@
-# deutschmark's Alert Creator
+# AlertBox
 
 A desktop tool for creating stream alerts from YouTube clips. Download, crop, normalize audio, and export perfectly formatted alert videos.
 
@@ -42,8 +42,8 @@ pip install -r requirements.txt
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/thedeutschmark/deutschmark-s-alert-creator.git
-   cd deutschmark-s-alert-creator
+   git clone https://github.com/thedeutschmark/alert-box.git
+   cd alert-box
    ```
 
 2. **Install dependencies**
@@ -165,12 +165,7 @@ deutschmark-s-alert-creator/
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
+## 🤝 Thank me
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+I stream on Twitch! Come say hi and tell me if you are using this tool
+**[Twitch](https://twitch.tv/thedeutschmark)**
