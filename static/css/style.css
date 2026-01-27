@@ -30,6 +30,10 @@ body {
     min-height: 100vh;
 }
 
+.hidden {
+    display: none !important;
+}
+
 /* ── Header ──────────────────────────────────────────────────── */
 header {
     background: var(--bg-header);
