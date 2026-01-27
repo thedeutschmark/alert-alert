@@ -783,13 +783,26 @@ def cleanup(job_id):
     return jsonify({"status": "cleaned"})
 
 
+# ── Shutdown ────────────────────────────────────────────────────
+
+@app.route("/api/shutdown", methods=["POST"])
+def shutdown():
+    func = request.environ.get("werkzeug.server.shutdown")
+    if func is None:
+        # Fallback for non-Werkzeug servers or threaded mode if needed
+        os._exit(0)
+    func()
+    return jsonify({"status": "shutting down"})
+
+
 # ── Run ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("deutschmark's AlertBox")
-    print(f"  ffmpeg:  {FFMPEG}")
-    print(f"  ffprobe: {FFPROBE}")
-    print(f"  yt-dlp:  {YTDLP}")
+    # Redirect stdout/stderr to a log file if frozen (EXE mode)
+    if getattr(sys, 'frozen', False):
+        log_path = BASE_DIR / "app.log"
+        sys.stdout = open(log_path, "a")
+        sys.stderr = open(log_path, "a")
     
     # Open the browser
     webbrowser.open("http://127.0.0.1:5000")

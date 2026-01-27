@@ -639,6 +639,16 @@ const App = (() => {
         setTimeout(() => btn.textContent = "Reset to Defaults", 1000);
     }
 
+    async function shutdownApp() {
+        if (!confirm("Are you sure you want to quit the application?")) return;
+        try {
+            await api("/api/shutdown", { method: "POST" });
+            document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;background:#0f0f0f;color:#fff;font-family:sans-serif;'><h2>Application has been closed. You can close this tab.</h2></div>";
+        } catch (e) {
+            alert("Failed to quit app");
+        }
+    }
+
     return {
         validateUrl,
         validateAudioUrl,
@@ -647,6 +657,7 @@ const App = (() => {
         downloadResult,
         toggleSettings,
         resetSettings,
+        shutdownApp,
     };
 })();
 
