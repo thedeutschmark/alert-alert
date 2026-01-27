@@ -828,12 +828,32 @@ def shutdown():
 # ── Run ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("="*60)
-    print("  DEUTSCHMARK'S ALERT CREATOR")
-    print("  Keeping this window open is normal.")
-    print("  Do not close it until you are finished using the app.")
-    print("  You can minimize this window.")
-    print("="*60)
+    print(r"""
+  ____  _____ _   _ _____ ____   ____ _   _ __  __    _    ____  _  __
+ |  _ \| ____| | | |_   _/ ___| / ___| | | |  \/  |  / \  |  _ \| |/ /
+ | | | |  _| | | | | | | \___ \| |   | |_| | |\/| | / _ \ | |_) | ' / 
+ | |_| | |___| |_| | | |  ___) | |___|  _  | |  | |/ ___ \|  _ <| . \ 
+ |____/|_____|\___/  |_| |____/ \____|_| |_|_|  |_/_/   \_\_| \_\_|\_\
+                                                                      
+      _    _     _______ ____ _____ ____  ______  __
+     / \  | |   | ____|  _ \_   _| __ )/ __ \ \/ /
+    / _ \ | |   |  _| | |_) || | |  _ \ |  | \  / 
+   / ___ \| |___| |___|  _ < | | | |_) | |__| /  \ 
+  /_/   \_\_____|_____|_| \_\|_| |____/ \____/_/\_\
+                                                 
+  
+  >> Created by The Deutschmark <<
+""")
+    print("="*65)
+    print("  [!] SYSTEM NOTICE:")
+    print("      You may see flashing command windows during startup.")
+    print("      This is normal dependency checking behavior.")
+    print("")
+    print("  [i] STATUS:")
+    print("      Keep this window OPEN while using the app.")
+    print("      You can safeley minimize it to the taskbar.")
+    print("="*65)
+    print("")
 
     # Run dependency checks ONCE at startup (before browser opens)
     # This prevents pop-ups from appearing when the browser hits the API
