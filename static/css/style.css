@@ -1,0 +1,420 @@
+/* ── Reset & base ────────────────────────────────────────────── */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+:root {
+    --bg-base: #0f0f0f;
+    --bg-card: #181818;
+    --bg-header: #1a1a1a;
+    --border: #2a2a2a;
+    --border-focus: #5a9fff;
+    --text: #e1e1e1;
+    --text-muted: #888;
+    --accent: #5a9fff;
+    --accent-hover: #4a8fee;
+    --accent-green: #34d399;
+    --accent-green-hover: #2bc48a;
+    --error: #ef6461;
+    --error-bg: #1f1010;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg-base);
+    color: var(--text);
+    min-height: 100vh;
+}
+
+/* ── Header ──────────────────────────────────────────────────── */
+header {
+    background: var(--bg-header);
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.3px;
+}
+
+/* ── Banner ──────────────────────────────────────────────────── */
+.banner {
+    padding: 12px 24px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.banner-error {
+    background: var(--error-bg);
+    border-bottom: 1px solid #3a1515;
+    color: var(--error);
+}
+
+.banner code {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 13px;
+}
+
+/* ── Main layout ──────────────────────────────────────────────── */
+main {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+/* ── Steps ────────────────────────────────────────────────────── */
+.step {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+    transition: opacity 0.3s;
+}
+
+.step.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+.step h2 {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 10px 16px;
+    background: #1e1e1e;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.step-content {
+    padding: 16px;
+}
+
+/* ── Inputs ───────────────────────────────────────────────────── */
+.input-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+input[type="text"] {
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+input[type="text"]:focus {
+    border-color: var(--accent);
+}
+
+#url-input {
+    flex: 1;
+    min-width: 200px;
+}
+
+.time-input {
+    width: 80px;
+    text-align: center;
+}
+
+label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────── */
+button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+}
+
+button:hover:not(:disabled) {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.export-btn {
+    background: var(--accent-green);
+    font-size: 16px;
+    padding: 12px 24px;
+    margin-top: 8px;
+}
+
+.export-btn:hover:not(:disabled) {
+    background: var(--accent-green-hover);
+}
+
+/* ── Info labels ──────────────────────────────────────────────── */
+.info-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+
+.info-label span {
+    color: var(--text);
+}
+
+/* ── Error messages ───────────────────────────────────────────── */
+.error-msg {
+    color: var(--error);
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+/* ── Spinner ──────────────────────────────────────────────────── */
+.spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--accent);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+#download-status {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+/* ── Crop preview ─────────────────────────────────────────────── */
+#crop-wrapper {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 12px;
+}
+
+#crop-container {
+    position: relative;
+    display: inline-block;
+    line-height: 0;
+    overflow: hidden;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+}
+
+#crop-image {
+    max-width: 100%;
+    height: auto;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+#crop-overlay {
+    position: absolute;
+    display: none;
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
+    cursor: move;
+    z-index: 10;
+    transition: box-shadow 0.2s;
+}
+
+#crop-overlay.dragging {
+    border-color: #fff;
+}
+
+.crop-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.crop-controls .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.crop-controls .slider-row label {
+    flex: 1;
+    min-width: 0;
+}
+
+.crop-controls .slider-label {
+    white-space: nowrap;
+    min-width: 55px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.crop-controls .slider-value {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 40px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+/* ── Progress bar ─────────────────────────────────────────────── */
+#progress-section {
+    margin-top: 12px;
+}
+
+.progress-bar-bg {
+    width: 100%;
+    height: 6px;
+    background: var(--bg-base);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+#progress-text {
+    margin-top: 6px;
+}
+
+/* ── Download section ─────────────────────────────────────────── */
+#download-section {
+    margin-top: 12px;
+}
+
+/* ── Audio source toggle ──────────────────────────────────────── */
+.audio-source-toggle {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.toggle-text {
+    font-size: 14px;
+    color: var(--text);
+}
+
+/* ── Audio source section ─────────────────────────────────────── */
+.audio-source-section {
+    margin-top: 16px;
+    padding: 16px;
+    background: rgba(90, 159, 255, 0.05);
+    border: 1px solid rgba(90, 159, 255, 0.2);
+    border-radius: 8px;
+    animation: fadeSlideIn 0.3s ease;
+}
+
+@keyframes fadeSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.audio-source-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.audio-icon {
+    font-size: 16px;
+}
+
+#audio-url-input {
+    flex: 1;
+    min-width: 200px;
+}
+
+.audio-source-section .input-row {
+    margin-bottom: 8px;
+}
+
+.audio-source-section .input-row:last-of-type {
+    margin-bottom: 0;
+}
+
+/* ── Utility ──────────────────────────────────────────────────── */
+.hidden {
+    display: none !important;
+}

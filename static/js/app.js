@@ -1,0 +1,464 @@
+/**
+ * Main application logic for Alert Creator.
+ * Manages the 4-step workflow, API calls, and UI state.
+ */
+const App = (() => {
+    // State
+    let videoUrl = "";
+    let videoDuration = 0;
+    let jobId = "";
+    let videoInfo = null; // { width, height, fps, duration }
+    let cropPreview = null;
+    let pollTimer = null;
+    
+    // Audio source state
+    let audioUrl = "";
+    let audioDuration = 0;
+    let audioValidated = false;
+    let useSeparateAudio = false;
+
+    // ── Helpers ─────────────────────────────────────────────────
+
+    function $(id) {
+        return document.getElementById(id);
+    }
+
+    function show(el) {
+        if (typeof el === "string") el = $(el);
+        el.classList.remove("hidden");
+    }
+
+    function hide(el) {
+        if (typeof el === "string") el = $(el);
+        el.classList.add("hidden");
+    }
+
+    function enableStep(stepNum) {
+        const step = $(`step-${stepNum}`);
+        step.classList.remove("disabled");
+    }
+
+    function disableStep(stepNum) {
+        const step = $(`step-${stepNum}`);
+        step.classList.add("disabled");
+    }
+
+    function showError(id, msg) {
+        const el = $(id);
+        el.textContent = msg;
+        show(el);
+    }
+
+    function hideError(id) {
+        hide(id);
+    }
+
+    function setLoading(btnId, loading) {
+        const btn = $(btnId);
+        btn.disabled = loading;
+        if (loading) {
+            btn.dataset.origText = btn.textContent;
+            btn.textContent = "Working...";
+        } else {
+            btn.textContent = btn.dataset.origText || btn.textContent;
+        }
+    }
+
+    function formatDuration(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m}:${s.toString().padStart(2, "0")}`;
+    }
+
+    function parseTimestamp(ts) {
+        const parts = ts.trim().split(":").map(Number);
+        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        if (parts.length === 2) return parts[0] * 60 + parts[1];
+        return parts[0] || 0;
+    }
+
+    async function api(endpoint, options = {}) {
+        const resp = await fetch(endpoint, {
+            headers: { "Content-Type": "application/json" },
+            ...options,
+        });
+        return resp.json();
+    }
+
+    // ── Initialization ──────────────────────────────────────────
+
+    async function init() {
+        // Check dependencies
+        try {
+            const deps = await api("/api/check-deps");
+            const missing = [];
+            if (!deps.ffmpeg?.installed) missing.push("ffmpeg");
+            if (!deps["yt-dlp"]?.installed) missing.push("yt-dlp");
+            if (!deps.ffprobe?.installed) missing.push("ffprobe");
+
+            if (missing.length > 0) {
+                const banner = $("dep-banner");
+                const msg = $("dep-message");
+                msg.innerHTML = `<strong>Missing dependencies:</strong> ${missing.join(", ")}.<br>` +
+                    `Install ffmpeg: <code>winget install Gyan.FFmpeg</code><br>` +
+                    `Install yt-dlp: <code>pip install yt-dlp</code>`;
+                banner.classList.add("banner-error");
+                show(banner);
+            }
+        } catch (e) {
+            // Server not running
+        }
+
+        // Auto-compute clip duration on timestamp change
+        $("start-input").addEventListener("input", updateClipDuration);
+        $("end-input").addEventListener("input", updateClipDuration);
+        
+        // Audio clip duration
+        $("audio-start-input").addEventListener("input", updateAudioClipDuration);
+        $("audio-end-input").addEventListener("input", updateAudioClipDuration);
+
+        // Frame scrubber
+        $("frame-scrubber").addEventListener("input", debounce(onFrameScrub, 300));
+
+        // Allow Enter to validate
+        $("url-input").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") validateUrl();
+        });
+        
+        $("audio-url-input").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") validateAudioUrl();
+        });
+        
+        // Audio source toggle
+        $("use-separate-audio").addEventListener("change", onAudioToggle);
+    }
+
+    function updateClipDuration() {
+        const start = parseTimestamp($("start-input").value);
+        const end = parseTimestamp($("end-input").value);
+        if (end > start) {
+            $("clip-duration").textContent = `Clip: ${formatDuration(end - start)}`;
+        } else {
+            $("clip-duration").textContent = "";
+        }
+    }
+    
+    function updateAudioClipDuration() {
+        const start = parseTimestamp($("audio-start-input").value);
+        const end = parseTimestamp($("audio-end-input").value);
+        if (end > start) {
+            $("audio-clip-duration").textContent = `Audio: ${formatDuration(end - start)}`;
+        } else {
+            $("audio-clip-duration").textContent = "";
+        }
+    }
+    
+    function onAudioToggle() {
+        useSeparateAudio = $("use-separate-audio").checked;
+        if (useSeparateAudio) {
+            show("audio-source-section");
+        } else {
+            hide("audio-source-section");
+            // Reset audio validation state
+            audioValidated = false;
+            audioUrl = "";
+        }
+    }
+
+    function debounce(fn, ms) {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn(...args), ms);
+        };
+    }
+
+    // ── Step 1: Validate URL ────────────────────────────────────
+
+    async function validateUrl() {
+        const url = $("url-input").value.trim();
+        if (!url) {
+            showError("step1-error", "Please enter a YouTube URL.");
+            return;
+        }
+        hideError("step1-error");
+        hide("video-info");
+        setLoading("validate-btn", true);
+
+        try {
+            const data = await api("/api/validate-url", {
+                method: "POST",
+                body: JSON.stringify({ url }),
+            });
+
+            if (!data.valid) {
+                showError("step1-error", data.error || "Invalid URL");
+                return;
+            }
+
+            videoUrl = url;
+            videoDuration = data.duration;
+            $("video-title").textContent = data.title;
+            $("video-duration").textContent = formatDuration(data.duration);
+            show("video-info");
+            enableStep(2);
+        } catch (e) {
+            showError("step1-error", "Failed to validate URL. Is the server running?");
+        } finally {
+            setLoading("validate-btn", false);
+        }
+    }
+    
+    // ── Validate Audio URL ──────────────────────────────────────
+    
+    async function validateAudioUrl() {
+        const url = $("audio-url-input").value.trim();
+        if (!url) {
+            showError("audio-url-error", "Please enter a YouTube URL for audio.");
+            return;
+        }
+        hideError("audio-url-error");
+        hide("audio-video-info");
+        setLoading("validate-audio-btn", true);
+
+        try {
+            const data = await api("/api/validate-url", {
+                method: "POST",
+                body: JSON.stringify({ url }),
+            });
+
+            if (!data.valid) {
+                showError("audio-url-error", data.error || "Invalid URL");
+                audioValidated = false;
+                return;
+            }
+
+            audioUrl = url;
+            audioDuration = data.duration;
+            audioValidated = true;
+            $("audio-video-title").textContent = data.title;
+            $("audio-video-duration").textContent = formatDuration(data.duration);
+            show("audio-video-info");
+        } catch (e) {
+            showError("audio-url-error", "Failed to validate URL. Is the server running?");
+            audioValidated = false;
+        } finally {
+            setLoading("validate-audio-btn", false);
+        }
+    }
+
+    // ── Step 2: Download Clip ───────────────────────────────────
+
+    async function downloadClip() {
+        const start = $("start-input").value.trim();
+        const end = $("end-input").value.trim();
+
+        if (!start || !end) {
+            showError("step2-error", "Please enter start and end timestamps.");
+            return;
+        }
+
+        const startSec = parseTimestamp(start);
+        const endSec = parseTimestamp(end);
+        if (endSec <= startSec) {
+            showError("step2-error", "End time must be after start time.");
+            return;
+        }
+        
+        // Validate audio source if enabled
+        if (useSeparateAudio) {
+            if (!audioValidated) {
+                showError("step2-error", "Please validate the audio URL first.");
+                return;
+            }
+            
+            const audioStart = $("audio-start-input").value.trim();
+            const audioEnd = $("audio-end-input").value.trim();
+            
+            if (!audioStart || !audioEnd) {
+                showError("step2-error", "Please enter audio start and end timestamps.");
+                return;
+            }
+            
+            const audioStartSec = parseTimestamp(audioStart);
+            const audioEndSec = parseTimestamp(audioEnd);
+            if (audioEndSec <= audioStartSec) {
+                showError("step2-error", "Audio end time must be after start time.");
+                return;
+            }
+        }
+
+        hideError("step2-error");
+        setLoading("download-btn", true);
+        $("download-status-text").textContent = "Downloading video clip...";
+        show("download-status");
+
+        try {
+            // Build request body
+            const requestBody = { url: videoUrl, start, end };
+            
+            if (useSeparateAudio) {
+                requestBody.audio_url = audioUrl;
+                requestBody.audio_start = $("audio-start-input").value.trim();
+                requestBody.audio_end = $("audio-end-input").value.trim();
+            }
+            
+            const data = await api("/api/download", {
+                method: "POST",
+                body: JSON.stringify(requestBody),
+            });
+
+            if (data.error) {
+                showError("step2-error", data.error);
+                hide("download-status");
+                return;
+            }
+
+            jobId = data.job_id;
+            $("download-status-text").textContent = "Downloaded! Loading preview...";
+
+            // Get video info
+            videoInfo = await api(`/api/video-info/${jobId}`);
+
+            // Load first preview frame
+            await loadPreviewFrame(0);
+
+            hide("download-status");
+            enableStep(3);
+            enableStep(4);
+
+        } catch (e) {
+            showError("step2-error", "Download failed: " + e.message);
+            hide("download-status");
+        } finally {
+            setLoading("download-btn", false);
+        }
+    }
+
+    // ── Step 3: Crop Preview ────────────────────────────────────
+
+    async function loadPreviewFrame(timestamp) {
+        try {
+            const resp = await fetch("/api/preview-frame", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ job_id: jobId, timestamp }),
+            });
+
+            if (!resp.ok) return;
+
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const img = $("crop-image");
+
+            img.onload = () => {
+                if (!cropPreview) {
+                    cropPreview = new CropPreview();
+                }
+                cropPreview.initialize(videoInfo.width, videoInfo.height);
+            };
+            img.src = url;
+        } catch (e) {
+            console.error("Failed to load preview frame:", e);
+        }
+    }
+
+    function onFrameScrub() {
+        if (!videoInfo || !jobId) return;
+        const pct = parseInt($("frame-scrubber").value) / 100;
+        const timestamp = pct * videoInfo.duration;
+        loadPreviewFrame(timestamp);
+    }
+
+    // ── Step 4: Process & Export ─────────────────────────────────
+
+    async function processVideo() {
+        if (!cropPreview) {
+            showError("step4-error", "Crop preview not ready.");
+            return;
+        }
+
+        hideError("step4-error");
+        const cropParams = cropPreview.getCropParams();
+
+        setLoading("process-btn", true);
+        show("progress-section");
+        hide("download-section");
+
+        try {
+            await api("/api/process", {
+                method: "POST",
+                body: JSON.stringify({
+                    job_id: jobId,
+                    crop: cropParams,
+                    use_separate_audio: useSeparateAudio,
+                }),
+            });
+
+            // Start polling
+            pollProgress();
+        } catch (e) {
+            showError("step4-error", "Failed to start processing: " + e.message);
+            setLoading("process-btn", false);
+        }
+    }
+
+    function pollProgress() {
+        if (pollTimer) clearInterval(pollTimer);
+
+        pollTimer = setInterval(async () => {
+            try {
+                const data = await api(`/api/status/${jobId}`);
+
+                if (data.status === "complete") {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                    $("progress-bar").style.width = "100%";
+                    $("progress-text").textContent = "Done!";
+                    show("download-section");
+                    setLoading("process-btn", false);
+                    return;
+                }
+
+                if (data.status === "error") {
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                    showError("step4-error", data.error || "Processing failed");
+                    hide("progress-section");
+                    setLoading("process-btn", false);
+                    return;
+                }
+
+                // Update progress
+                const pct = data.progress || 0;
+                $("progress-bar").style.width = pct + "%";
+                $("progress-text").textContent = data.stage || "Processing...";
+
+            } catch (e) {
+                // Network error, keep trying
+            }
+        }, 1000);
+    }
+
+    function downloadResult() {
+        window.location.href = `/api/download-result/${jobId}`;
+    }
+
+    // ── Public API ──────────────────────────────────────────────
+
+    // Auto-init when DOM is ready
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+
+    return {
+        validateUrl,
+        validateAudioUrl,
+        downloadClip,
+        processVideo,
+        downloadResult,
+    };
+})();
+
