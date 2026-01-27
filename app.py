@@ -11,7 +11,6 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
 import webbrowser
-import webview
 
 
 # Handle PyInstaller paths
@@ -844,21 +843,15 @@ if __name__ == "__main__":
     print(f"  ffmpeg:  {FFMPEG}")
     print(f"  ffprobe: {FFPROBE}")
     print(f"  yt-dlp:  {YTDLP}")
+    print("")
+    print("  Starting server...")
+    print("  App will open in your browser.")
+    print("  Keep this window open while using the app.")
+    print("="*65)
     
-    # Run Flask in a background thread
-    t = threading.Thread(target=lambda: app.run(port=5000, debug=False, use_reloader=False))
-    t.daemon = True
-    t.start()
-
-    # Launch Native GUI Window
-    webview.create_window(
-        "deutschmark's Alert! Alert!", 
-        "http://127.0.0.1:5000",
-        width=1280,
-        height=900,
-        min_size=(900, 700),
-        background_color='#0f0f0f',
-        text_select=False
-    )
+    # Open the browser
+    webbrowser.open("http://127.0.0.1:5000")
     
-    webview.start(debug=False, gui='qt')
+    # Run using Waitress (Production Server)
+    from waitress import serve
+    serve(app, host="127.0.0.1", port=5000, threads=6)
