@@ -1,5 +1,7 @@
 /* ── Reset & base ────────────────────────────────────────────── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
@@ -33,6 +35,9 @@ header {
     background: var(--bg-header);
     padding: 16px 24px;
     border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 header h1 {
@@ -40,6 +45,119 @@ header h1 {
     font-weight: 600;
     color: var(--text);
     letter-spacing: 0.3px;
+}
+
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ── Settings Dropdown ───────────────────────────────────────── */
+.settings-dropdown {
+    position: relative;
+}
+
+.settings-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    padding: 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    transition: all 0.2s;
+}
+
+.settings-btn:hover {
+    background: var(--bg-card);
+    color: var(--text);
+    border-color: var(--text-muted);
+    transform: none;
+}
+
+.settings-btn.active {
+    background: var(--bg-card);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.settings-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    min-width: 220px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    animation: fadeSlideIn 0.2s ease;
+}
+
+.settings-section {
+    margin-bottom: 14px;
+}
+
+.settings-section:last-of-type {
+    margin-bottom: 0;
+}
+
+.settings-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+
+.settings-select {
+    width: 100%;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.settings-select:focus {
+    border-color: var(--accent);
+}
+
+.settings-select option {
+    background: var(--bg-base);
+    color: var(--text);
+}
+
+.settings-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 14px 0;
+}
+
+.settings-reset {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 8px 12px;
+    font-size: 13px;
+}
+
+.settings-reset:hover {
+    background: var(--error-bg);
+    border-color: var(--error);
+    color: var(--error);
+    transform: none;
 }
 
 /* ── Banner ──────────────────────────────────────────────────── */
@@ -225,7 +343,9 @@ button:disabled {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 #download-status {
@@ -381,6 +501,7 @@ input[type="range"] {
         opacity: 0;
         transform: translateY(-8px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);

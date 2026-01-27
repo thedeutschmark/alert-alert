@@ -389,15 +389,24 @@ def run_ffmpeg(args, env, timeout=120):
     return r
 
 
-def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audio=False):
+def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audio=False,
+                            quality="medium", audio_bitrate="192", buffer_duration=2):
     """Run the full ffmpeg pipeline in a background thread.
     
     Audio Quality Strategy:
     - Extract audio to lossless PCM WAV for all processing stages
     - Apply loudnorm filter on PCM (no generation loss)
-    - Only encode to AAC once at the very end with 192k bitrate
+    - Only encode to AAC once at the very end
     - If using separate audio source, replace video audio before processing
+    
+    Settings:
+    - quality: "high" (CRF 18), "medium" (CRF 23), "low" (CRF 28)
+    - audio_bitrate: kbps as string ("128", "192", "256", "320")
+    - buffer_duration: seconds of still frame buffer at end
     """
+    # Map quality to CRF values
+    crf_map = {"high": "18", "medium": "23", "low": "28"}
+    crf = crf_map.get(quality, "23")
     env = get_env()
     try:
         job_dir = DOWNLOADS_DIR / job_id
@@ -543,46 +552,51 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
             "-y", cropped,
         ], env=env)
 
-        # ── Stage 4: Extract last frame + create 2s still buffer ──
-        jobs[job_id] = {"status": "processing", "progress": 65, "stage": "Creating end buffer..."}
-        last_frame = str(proc_dir / "last_frame.jpg")
-        run_ffmpeg([
-            FFMPEG, "-sseof", "-0.1", "-i", cropped,
-            "-frames:v", "1", "-q:v", "2", "-y", last_frame,
-        ], env=env, timeout=30)
+        # ── Stage 4: Extract last frame + create still buffer ──
+        if buffer_duration > 0:
+            jobs[job_id] = {"status": "processing", "progress": 65, "stage": "Creating end buffer..."}
+            last_frame = str(proc_dir / "last_frame.jpg")
+            run_ffmpeg([
+                FFMPEG, "-sseof", "-0.1", "-i", cropped,
+                "-frames:v", "1", "-q:v", "2", "-y", last_frame,
+            ], env=env, timeout=30)
 
-        # Create still buffer with silence (will encode audio once at final stage)
-        still_buffer = str(proc_dir / "still_buffer.mp4")
-        run_ffmpeg([
-            FFMPEG, "-loop", "1", "-i", last_frame,
-            "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
-            "-c:v", "libx264", "-t", "2", "-pix_fmt", "yuv420p",
-            "-vf", "scale=720:720",
-            "-r", str(round(fps)), "-c:a", "pcm_s16le",
-            "-shortest", "-y", still_buffer,
-        ], env=env, timeout=30)
+            # Create still buffer with silence (will encode audio once at final stage)
+            still_buffer = str(proc_dir / "still_buffer.mp4")
+            run_ffmpeg([
+                FFMPEG, "-loop", "1", "-i", last_frame,
+                "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
+                "-c:v", "libx264", "-t", str(buffer_duration), "-pix_fmt", "yuv420p",
+                "-vf", "scale=720:720",
+                "-r", str(round(fps)), "-c:a", "pcm_s16le",
+                "-shortest", "-y", still_buffer,
+            ], env=env, timeout=30)
 
-        # ── Stage 5: Concatenate with PCM audio (still lossless) ──
-        jobs[job_id] = {"status": "processing", "progress": 75, "stage": "Joining clips..."}
-        concatenated = str(proc_dir / "concatenated.mp4")
-        run_ffmpeg([
-            FFMPEG,
-            "-i", cropped,
-            "-i", still_buffer,
-            "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]",
-            "-map", "[outv]", "-map", "[outa]",
-            "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-            "-c:a", "pcm_s16le",  # Keep audio lossless for now
-            "-y", concatenated,
-        ], env=env, timeout=60)
+        # ── Stage 5: Concatenate or use cropped directly ──
+        if buffer_duration > 0:
+            jobs[job_id] = {"status": "processing", "progress": 75, "stage": "Joining clips..."}
+            concatenated = str(proc_dir / "concatenated.mp4")
+            run_ffmpeg([
+                FFMPEG,
+                "-i", cropped,
+                "-i", still_buffer,
+                "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]",
+                "-map", "[outv]", "-map", "[outa]",
+                "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+                "-c:a", "pcm_s16le",  # Keep audio lossless for now
+                "-y", concatenated,
+            ], env=env, timeout=60)
+            final_input = concatenated
+        else:
+            final_input = cropped
 
         # ── Stage 6: Final compression - ONLY AAC encode happens here ──
         jobs[job_id] = {"status": "processing", "progress": 90, "stage": "Final encoding..."}
         output_file = str(OUTPUT_DIR / f"alert_{job_id}.mp4")
         run_ffmpeg([
-            FFMPEG, "-i", concatenated,
-            "-c:v", "libx264", "-crf", "23", "-preset", "medium",
-            "-c:a", "aac", "-b:a", "192k",  # Higher bitrate, single encode
+            FFMPEG, "-i", final_input,
+            "-c:v", "libx264", "-crf", crf, "-preset", "medium",
+            "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
             "-movflags", "+faststart",
             "-y", output_file,
         ], env=env)
@@ -607,6 +621,12 @@ def process_video():
     crop_y = int(crop.get("y", 0))
     crop_size = int(crop.get("size", 720))
     use_separate_audio = data.get("use_separate_audio", False)
+    
+    # Settings
+    settings = data.get("settings", {})
+    quality = settings.get("quality", "medium")
+    audio_bitrate = settings.get("audioBitrate", "192")
+    buffer_duration = int(settings.get("bufferDuration", "2"))
 
     if not job_id:
         return jsonify({"error": "Missing job_id"}), 400
@@ -616,6 +636,7 @@ def process_video():
     thread = threading.Thread(
         target=run_processing_pipeline,
         args=(job_id, crop_x, crop_y, crop_size, use_separate_audio),
+        kwargs={"quality": quality, "audio_bitrate": audio_bitrate, "buffer_duration": buffer_duration},
         daemon=True,
     )
     thread.start()

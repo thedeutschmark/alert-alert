@@ -1,14 +1,59 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>deutschmark's Alert Creator</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
+
 <body>
     <header>
         <h1>deutschmark's Alert Creator</h1>
+        <div class="header-actions">
+            <div class="settings-dropdown">
+                <button id="settings-btn" class="settings-btn" onclick="App.toggleSettings()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                        </path>
+                    </svg>
+                </button>
+                <div id="settings-menu" class="settings-menu hidden">
+                    <div class="settings-section">
+                        <label class="settings-label">Output Quality</label>
+                        <select id="setting-quality" class="settings-select">
+                            <option value="high">High (CRF 18)</option>
+                            <option value="medium" selected>Medium (CRF 23)</option>
+                            <option value="low">Low (CRF 28)</option>
+                        </select>
+                    </div>
+                    <div class="settings-section">
+                        <label class="settings-label">Audio Bitrate</label>
+                        <select id="setting-audio-bitrate" class="settings-select">
+                            <option value="128">128 kbps</option>
+                            <option value="192" selected>192 kbps</option>
+                            <option value="256">256 kbps</option>
+                            <option value="320">320 kbps</option>
+                        </select>
+                    </div>
+                    <div class="settings-section">
+                        <label class="settings-label">End Buffer Duration</label>
+                        <select id="setting-buffer" class="settings-select">
+                            <option value="0">None</option>
+                            <option value="1">1 second</option>
+                            <option value="2" selected>2 seconds</option>
+                            <option value="3">3 seconds</option>
+                            <option value="5">5 seconds</option>
+                        </select>
+                    </div>
+                    <div class="settings-divider"></div>
+                    <button class="settings-reset" onclick="App.resetSettings()">Reset to Defaults</button>
+                </div>
+            </div>
+        </div>
     </header>
 
     <!-- Dependency check banner -->
@@ -48,7 +93,7 @@
                     </label>
                     <span id="clip-duration" class="info-label"></span>
                 </div>
-                
+
                 <!-- Separate Audio Source Toggle -->
                 <div class="audio-source-toggle">
                     <label class="toggle-label">
@@ -56,7 +101,7 @@
                         <span class="toggle-text">Use separate audio source</span>
                     </label>
                 </div>
-                
+
                 <!-- Separate Audio Source Section (hidden by default) -->
                 <div id="audio-source-section" class="hidden audio-source-section">
                     <div class="audio-source-header">
@@ -64,7 +109,8 @@
                         <span>Audio Source</span>
                     </div>
                     <div class="input-row">
-                        <input type="text" id="audio-url-input" placeholder="Paste YouTube URL for audio..." spellcheck="false">
+                        <input type="text" id="audio-url-input" placeholder="Paste YouTube URL for audio..."
+                            spellcheck="false">
                         <button id="validate-audio-btn" onclick="App.validateAudioUrl()">Validate</button>
                     </div>
                     <div id="audio-video-info" class="hidden">
@@ -84,7 +130,7 @@
                     </div>
                     <div id="audio-url-error" class="error-msg hidden"></div>
                 </div>
-                
+
                 <div class="input-row" style="margin-top: 1rem;">
                     <button id="download-btn" onclick="App.downloadClip()">Download Clip</button>
                 </div>
@@ -146,4 +192,5 @@
     <script src="/static/js/crop.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
+
 </html>

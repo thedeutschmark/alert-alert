@@ -10,7 +10,7 @@ const App = (() => {
     let videoInfo = null; // { width, height, fps, duration }
     let cropPreview = null;
     let pollTimer = null;
-    
+
     // Audio source state
     let audioUrl = "";
     let audioDuration = 0;
@@ -70,11 +70,49 @@ const App = (() => {
         return `${m}:${s.toString().padStart(2, "0")}`;
     }
 
+    /**
+     * Parse timestamp string to seconds.
+     * Supports: "1:30", "1:30:00", "90" (as seconds), "1.5" (as seconds)
+     */
     function parseTimestamp(ts) {
-        const parts = ts.trim().split(":").map(Number);
-        if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-        if (parts.length === 2) return parts[0] * 60 + parts[1];
-        return parts[0] || 0;
+        const trimmed = ts.trim();
+        if (!trimmed) return 0;
+
+        // If contains colon, parse as time format
+        if (trimmed.includes(":")) {
+            const parts = trimmed.split(":").map(Number);
+            if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+            if (parts.length === 2) return parts[0] * 60 + parts[1];
+            return parts[0] || 0;
+        }
+
+        // Otherwise treat as seconds
+        return parseFloat(trimmed) || 0;
+    }
+
+    /**
+     * Format a timestamp input value to proper MM:SS or H:MM:SS format.
+     * Called on blur to auto-format user input.
+     */
+    function formatTimestampInput(input) {
+        const value = input.value.trim();
+        if (!value) return;
+
+        const seconds = parseTimestamp(value);
+        if (isNaN(seconds) || seconds < 0) {
+            input.value = "0:00";
+            return;
+        }
+
+        const hours = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+
+        if (hours > 0) {
+            input.value = `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+        } else {
+            input.value = `${mins}:${secs.toString().padStart(2, "0")}`;
+        }
     }
 
     async function api(endpoint, options = {}) {
@@ -112,10 +150,16 @@ const App = (() => {
         // Auto-compute clip duration on timestamp change
         $("start-input").addEventListener("input", updateClipDuration);
         $("end-input").addEventListener("input", updateClipDuration);
-        
+
         // Audio clip duration
         $("audio-start-input").addEventListener("input", updateAudioClipDuration);
         $("audio-end-input").addEventListener("input", updateAudioClipDuration);
+
+        // Auto-format timestamps on blur
+        const timestampInputs = ["start-input", "end-input", "audio-start-input", "audio-end-input"];
+        timestampInputs.forEach(id => {
+            $(id).addEventListener("blur", (e) => formatTimestampInput(e.target));
+        });
 
         // Frame scrubber
         $("frame-scrubber").addEventListener("input", debounce(onFrameScrub, 300));
@@ -124,13 +168,25 @@ const App = (() => {
         $("url-input").addEventListener("keydown", (e) => {
             if (e.key === "Enter") validateUrl();
         });
-        
+
         $("audio-url-input").addEventListener("keydown", (e) => {
             if (e.key === "Enter") validateAudioUrl();
         });
-        
+
         // Audio source toggle
         $("use-separate-audio").addEventListener("change", onAudioToggle);
+
+        // Close settings when clicking outside
+        document.addEventListener("click", (e) => {
+            const dropdown = document.querySelector(".settings-dropdown");
+            if (dropdown && !dropdown.contains(e.target)) {
+                hide("settings-menu");
+                $("settings-btn").classList.remove("active");
+            }
+        });
+
+        // Load saved settings
+        loadSettings();
     }
 
     function updateClipDuration() {
@@ -142,7 +198,7 @@ const App = (() => {
             $("clip-duration").textContent = "";
         }
     }
-    
+
     function updateAudioClipDuration() {
         const start = parseTimestamp($("audio-start-input").value);
         const end = parseTimestamp($("audio-end-input").value);
@@ -152,7 +208,7 @@ const App = (() => {
             $("audio-clip-duration").textContent = "";
         }
     }
-    
+
     function onAudioToggle() {
         useSeparateAudio = $("use-separate-audio").checked;
         if (useSeparateAudio) {
@@ -208,9 +264,9 @@ const App = (() => {
             setLoading("validate-btn", false);
         }
     }
-    
+
     // ── Validate Audio URL ──────────────────────────────────────
-    
+
     async function validateAudioUrl() {
         const url = $("audio-url-input").value.trim();
         if (!url) {
@@ -264,22 +320,22 @@ const App = (() => {
             showError("step2-error", "End time must be after start time.");
             return;
         }
-        
+
         // Validate audio source if enabled
         if (useSeparateAudio) {
             if (!audioValidated) {
                 showError("step2-error", "Please validate the audio URL first.");
                 return;
             }
-            
+
             const audioStart = $("audio-start-input").value.trim();
             const audioEnd = $("audio-end-input").value.trim();
-            
+
             if (!audioStart || !audioEnd) {
                 showError("step2-error", "Please enter audio start and end timestamps.");
                 return;
             }
-            
+
             const audioStartSec = parseTimestamp(audioStart);
             const audioEndSec = parseTimestamp(audioEnd);
             if (audioEndSec <= audioStartSec) {
@@ -296,13 +352,13 @@ const App = (() => {
         try {
             // Build request body
             const requestBody = { url: videoUrl, start, end };
-            
+
             if (useSeparateAudio) {
                 requestBody.audio_url = audioUrl;
                 requestBody.audio_start = $("audio-start-input").value.trim();
                 requestBody.audio_end = $("audio-end-input").value.trim();
             }
-            
+
             const data = await api("/api/download", {
                 method: "POST",
                 body: JSON.stringify(requestBody),
@@ -392,6 +448,7 @@ const App = (() => {
                     job_id: jobId,
                     crop: cropParams,
                     use_separate_audio: useSeparateAudio,
+                    settings: getSettings(),
                 }),
             });
 
@@ -453,12 +510,75 @@ const App = (() => {
         init();
     }
 
+    // ── Settings ────────────────────────────────────────────────
+
+    function toggleSettings() {
+        const menu = $("settings-menu");
+        const btn = $("settings-btn");
+        if (menu.classList.contains("hidden")) {
+            show(menu);
+            btn.classList.add("active");
+        } else {
+            hide(menu);
+            btn.classList.remove("active");
+        }
+    }
+
+    function getSettings() {
+        return {
+            quality: $("setting-quality")?.value || "medium",
+            audioBitrate: $("setting-audio-bitrate")?.value || "192",
+            bufferDuration: $("setting-buffer")?.value || "2"
+        };
+    }
+
+    function loadSettings() {
+        try {
+            const saved = localStorage.getItem("alertCreatorSettings");
+            if (saved) {
+                const settings = JSON.parse(saved);
+                if (settings.quality) $("setting-quality").value = settings.quality;
+                if (settings.audioBitrate) $("setting-audio-bitrate").value = settings.audioBitrate;
+                if (settings.bufferDuration) $("setting-buffer").value = settings.bufferDuration;
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+
+        // Save on change
+        ["setting-quality", "setting-audio-bitrate", "setting-buffer"].forEach(id => {
+            $(id)?.addEventListener("change", saveSettings);
+        });
+    }
+
+    function saveSettings() {
+        try {
+            localStorage.setItem("alertCreatorSettings", JSON.stringify(getSettings()));
+        } catch (e) {
+            // Ignore errors
+        }
+    }
+
+    function resetSettings() {
+        $("setting-quality").value = "medium";
+        $("setting-audio-bitrate").value = "192";
+        $("setting-buffer").value = "2";
+        saveSettings();
+
+        // Visual feedback
+        const btn = document.querySelector(".settings-reset");
+        btn.textContent = "Reset!";
+        setTimeout(() => btn.textContent = "Reset to Defaults", 1000);
+    }
+
     return {
         validateUrl,
         validateAudioUrl,
         downloadClip,
         processVideo,
         downloadResult,
+        toggleSettings,
+        resetSettings,
     };
 })();
 
