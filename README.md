@@ -1,5 +1,3 @@
-# deutschmark's Alert! Alert!
-
 ```text
     _    _           _   _      _    _           _   _ 
    / \  | | ___ _ __| |_| |    / \  | | ___ _ __| |_| |
