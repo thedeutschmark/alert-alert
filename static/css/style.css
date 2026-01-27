@@ -174,11 +174,40 @@ header h1 {
     cursor: help;
     margin-left: 6px;
     vertical-align: middle;
+    position: relative;
 }
 
 .tooltip-icon:hover {
     background: var(--accent);
     color: var(--bg-base);
+}
+
+.tooltip-icon::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    right: -8px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    width: 220px;
+    text-align: left;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s, visibility 0.15s;
+    z-index: 200;
+    pointer-events: none;
+}
+
+.tooltip-icon:hover::after {
+    opacity: 1;
+    visibility: visible;
 }
 
 .settings-toggle {
