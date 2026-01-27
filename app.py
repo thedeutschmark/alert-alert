@@ -808,12 +808,6 @@ def shutdown():
 # ── Run ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    # Redirect stdout/stderr to a log file if frozen (EXE mode)
-    if getattr(sys, 'frozen', False):
-        log_path = BASE_DIR / "app.log"
-        sys.stdout = open(log_path, "a")
-        sys.stderr = open(log_path, "a")
-    
     # Run dependency checks ONCE at startup (before browser opens)
     # This prevents pop-ups from appearing when the browser hits the API
     print("Pre-checking dependencies...")
