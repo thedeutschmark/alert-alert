@@ -1,6 +1,16 @@
 # deutschmark's Alert! Alert!
 
-A desktop tool for creating stream alerts from YouTube clips. Download, crop, normalize audio, and export perfectly formatted alert videos.
+```text
+    _    _           _   _      _    _           _   _ 
+   / \  | | ___ _ __| |_| |    / \  | | ___ _ __| |_| |
+  / _ \ | |/ _ \ '__| __| |   / _ \ | |/ _ \ '__| __| |
+ / ___ \| |  __/ |  | |_|_|  / ___ \| |  __/ |  | |_|_|
+/_/   \_\_|\___|_|   \__(_) /_/   \_\_|\___|_|   \__(_)
+```
+
+**The ultimate desktop tool for creating stream alerts from YouTube clips.**
+
+Now featuring a sleek, native GUI, live video previews, and precision trimming controls. Download, crop, normalize audio, and export perfectly formatted alert videos in seconds.
 
 ![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-Backend-green?logo=flask&logoColor=white)
@@ -45,8 +55,8 @@ pip install -r requirements.txt
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/thedeutschmark/alert-box.git
-   cd alert-box
+   git clone https://github.com/thedeutschmark/alert-alert.git
+   cd alert-alert
    ```
 
 2. **Install dependencies**

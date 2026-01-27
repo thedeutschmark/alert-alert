@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
 import webbrowser
+import webview
 
 
 # Handle PyInstaller paths
@@ -828,28 +829,36 @@ def shutdown():
 # ── Run ─────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    if platform.system() == "Windows" and not getattr(sys, 'frozen', False):
+        os.system("title deutschmark's Alert! Alert!")
+    print(r"""
+    _    _           _   _      _    _           _   _ 
+   / \  | | ___ _ __| |_| |    / \  | | ___ _ __| |_| |
+  / _ \ | |/ _ \ '__| __| |   / _ \ | |/ _ \ '__| __| |
+ / ___ \| |  __/ |  | |_|_|  / ___ \| |  __/ |  | |_|_|
+/_/   \_\_|\___|_|   \__(_) /_/   \_\_|\___|_|   \__(_)
+""")
     print("="*65)
     print("  deutschmark's Alert! Alert!")
     print("="*65)
-    print("  [!] SYSTEM NOTICE:")
-    print("      You may see flashing command windows during startup.")
-    print("      This is normal dependency checking behavior.")
-    print("")
-    print("  [i] STATUS:")
-    print("      Keep this window OPEN while using the app.")
-    print("      You can safely minimize it to the taskbar.")
-    print("="*65)
-    print("")
-
-    # Run dependency checks ONCE at startup (before browser opens)
-    # This prevents pop-ups from appearing when the browser hits the API
-    print("Pre-checking dependencies...")
-    run_deps_check()
-
-    # Open the browser
-    webbrowser.open("http://127.0.0.1:5000")
+    print(f"  ffmpeg:  {FFMPEG}")
+    print(f"  ffprobe: {FFPROBE}")
+    print(f"  yt-dlp:  {YTDLP}")
     
-    # Run using Waitress (Production Server)
-    from waitress import serve
-    print("Starting server on http://127.0.0.1:5000")
-    serve(app, host="127.0.0.1", port=5000, threads=6)
+    # Run Flask in a background thread
+    t = threading.Thread(target=lambda: app.run(port=5000, debug=False, use_reloader=False))
+    t.daemon = True
+    t.start()
+
+    # Launch Native GUI Window
+    webview.create_window(
+        "deutschmark's Alert! Alert!", 
+        "http://127.0.0.1:5000",
+        width=1280,
+        height=900,
+        min_size=(900, 700),
+        background_color='#0f0f0f',
+        text_select=False
+    )
+    
+    webview.start(debug=False, gui='qt')
