@@ -102,6 +102,21 @@ def get_env():
     return env
 
 
+def run_subprocess(cmd, timeout=30, text=True):
+    """Run a subprocess with proper flags to avoid popping up console windows on Windows."""
+    kwargs = {
+        "capture_output": True,
+        "text": text,
+        "timeout": timeout,
+        "env": get_env()
+    }
+    if platform.system() == "Windows":
+        # Prevent console window from appearing
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+    
+    return subprocess.run(cmd, **kwargs)
+
+
 # ── Serve frontend ──────────────────────────────────────────────
 
 @app.route("/")
@@ -122,10 +137,7 @@ def check_deps():
     ]
     for name, path, args in tools:
         try:
-            r = subprocess.run(
-                [path] + args,
-                capture_output=True, text=True, timeout=10, env=get_env()
-            )
+            r = run_subprocess([path] + args, timeout=10)
             output = (r.stdout + r.stderr).strip()
             has_output = bool(output)
             first_line = output.split("\n")[0].strip() if has_output else None
@@ -151,10 +163,8 @@ def validate_url():
         return jsonify({"valid": False, "error": "No URL provided"}), 400
 
     try:
-        r = subprocess.run(
-            [YTDLP, "--dump-json", "--no-download", url],
-            capture_output=True, text=True, timeout=30, env=get_env()
-        )
+        r = run_subprocess([YTDLP, "--dump-json", "--no-download", url], timeout=30)
+        
         if r.returncode != 0:
             return jsonify({"valid": False, "error": r.stderr.strip() or "Invalid URL"})
 
@@ -236,10 +246,8 @@ def download_clip():
     ytdlp_cmd.append(url)
 
     try:
-        r = subprocess.run(
-            ytdlp_cmd,
-            capture_output=True, text=True, timeout=300, env=get_env()
-        )
+        r = run_subprocess(ytdlp_cmd, timeout=300)
+        
         if r.returncode != 0:
             jobs[job_id] = {"status": "error", "error": r.stderr.strip() or "Download failed"}
             return jsonify({"error": r.stderr.strip() or "Download failed"}), 500
@@ -270,10 +278,8 @@ def download_clip():
                 audio_cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
             audio_cmd.append(audio_url)
             
-            r = subprocess.run(
-                audio_cmd,
-                capture_output=True, text=True, timeout=300, env=get_env()
-            )
+            r = run_subprocess(audio_cmd, timeout=300)
+            
             if r.returncode != 0:
                 jobs[job_id] = {"status": "error", "error": f"Audio download failed: {r.stderr.strip()}"}
                 return jsonify({"error": f"Audio download failed: {r.stderr.strip()}"}), 500
@@ -374,12 +380,14 @@ def preview_frame():
     output_frame = str(PROCESSING_DIR / f"{job_id}_preview.jpg")
 
     try:
-        subprocess.run(
+        # Note: text=False for binary output capture if needed, but here we just need execution
+        # We don't read stdout for the image, we read the written file. But capturing avoids console spam.
+        run_subprocess(
             [
                 FFMPEG, "-ss", str(timestamp), "-i", input_file,
                 "-frames:v", "1", "-q:v", "2", "-y", output_frame,
             ],
-            capture_output=True, timeout=15, env=get_env()
+            timeout=15
         )
         return send_file(output_frame, mimetype="image/jpeg")
     except Exception as e:
@@ -390,7 +398,19 @@ def preview_frame():
 
 def run_ffmpeg(args, env, timeout=120):
     """Run an ffmpeg/ffprobe command, return the result. Raises on failure with clean error."""
-    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+    # We pass env explicitly to run_ffmpeg, but run_subprocess gets it from get_env()
+    # To support the existing pipeline logic which constructs env, we'll respect the passed env
+    # but still use our wrapper logic for flags
+    kwargs = {
+        "capture_output": True,
+        "text": True,
+        "timeout": timeout,
+        "env": env
+    }
+    if platform.system() == "Windows":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        
+    r = subprocess.run(args, **kwargs)
     if r.returncode != 0:
         # Extract meaningful error lines (skip the version banner)
         lines = r.stderr.strip().split("\n")
