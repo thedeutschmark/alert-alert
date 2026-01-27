@@ -526,9 +526,9 @@ const App = (() => {
 
     function getSettings() {
         return {
-            quality: $("setting-quality")?.value || "medium",
-            audioBitrate: $("setting-audio-bitrate")?.value || "192",
-            bufferDuration: $("setting-buffer")?.value || "2"
+            resolution: $("setting-resolution")?.value || "720",
+            bufferDuration: $("setting-buffer")?.value || "2",
+            normalizeAudio: $("setting-normalize-audio")?.checked ?? true
         };
     }
 
@@ -537,16 +537,18 @@ const App = (() => {
             const saved = localStorage.getItem("alertCreatorSettings");
             if (saved) {
                 const settings = JSON.parse(saved);
-                if (settings.quality) $("setting-quality").value = settings.quality;
-                if (settings.audioBitrate) $("setting-audio-bitrate").value = settings.audioBitrate;
+                if (settings.resolution) $("setting-resolution").value = settings.resolution;
                 if (settings.bufferDuration) $("setting-buffer").value = settings.bufferDuration;
+                if (typeof settings.normalizeAudio === "boolean") {
+                    $("setting-normalize-audio").checked = settings.normalizeAudio;
+                }
             }
         } catch (e) {
             // Ignore errors
         }
 
         // Save on change
-        ["setting-quality", "setting-audio-bitrate", "setting-buffer"].forEach(id => {
+        ["setting-resolution", "setting-buffer", "setting-normalize-audio"].forEach(id => {
             $(id)?.addEventListener("change", saveSettings);
         });
     }
@@ -560,9 +562,9 @@ const App = (() => {
     }
 
     function resetSettings() {
-        $("setting-quality").value = "medium";
-        $("setting-audio-bitrate").value = "192";
+        $("setting-resolution").value = "720";
         $("setting-buffer").value = "2";
+        $("setting-normalize-audio").checked = true;
         saveSettings();
 
         // Visual feedback

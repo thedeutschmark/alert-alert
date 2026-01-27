@@ -10,7 +10,10 @@
 
 <body>
     <header>
-        <h1>deutschmark's Alert Creator</h1>
+        <div class="header-brand">
+            <img src="/static/img/logo.png" alt="Logo" class="header-logo">
+            <h1>deutschmark's Alert Creator</h1>
+        </div>
         <div class="header-actions">
             <div class="settings-dropdown">
                 <button id="settings-btn" class="settings-btn" onclick="App.toggleSettings()">
@@ -23,24 +26,19 @@
                 </button>
                 <div id="settings-menu" class="settings-menu hidden">
                     <div class="settings-section">
-                        <label class="settings-label">Output Quality</label>
-                        <select id="setting-quality" class="settings-select">
-                            <option value="high">High (CRF 18)</option>
-                            <option value="medium" selected>Medium (CRF 23)</option>
-                            <option value="low">Low (CRF 28)</option>
+                        <label class="settings-label">Output Resolution</label>
+                        <select id="setting-resolution" class="settings-select">
+                            <option value="480">480p (480×480)</option>
+                            <option value="720" selected>720p (720×720)</option>
+                            <option value="1080">1080p (1080×1080)</option>
                         </select>
                     </div>
                     <div class="settings-section">
-                        <label class="settings-label">Audio Bitrate</label>
-                        <select id="setting-audio-bitrate" class="settings-select">
-                            <option value="128">128 kbps</option>
-                            <option value="192" selected>192 kbps</option>
-                            <option value="256">256 kbps</option>
-                            <option value="320">320 kbps</option>
-                        </select>
-                    </div>
-                    <div class="settings-section">
-                        <label class="settings-label">End Buffer Duration</label>
+                        <label class="settings-label">
+                            End Buffer
+                            <span class="tooltip-icon"
+                                title="Adds a freeze-frame at the end of the clip. Useful for stream alerts that need time to fade out.">?</span>
+                        </label>
                         <select id="setting-buffer" class="settings-select">
                             <option value="0">None</option>
                             <option value="1">1 second</option>
@@ -48,6 +46,17 @@
                             <option value="3">3 seconds</option>
                             <option value="5">5 seconds</option>
                         </select>
+                    </div>
+                    <div class="settings-section">
+                        <label class="settings-label">
+                            Audio Normalization
+                            <span class="tooltip-icon"
+                                title="Automatically adjusts audio levels to broadcast standard (-16 LUFS). Disable if you want to preserve original audio levels.">?</span>
+                        </label>
+                        <div class="settings-toggle">
+                            <input type="checkbox" id="setting-normalize-audio" checked>
+                            <label for="setting-normalize-audio">Normalize audio levels</label>
+                        </div>
                     </div>
                     <div class="settings-divider"></div>
                     <button class="settings-reset" onclick="App.resetSettings()">Reset to Defaults</button>

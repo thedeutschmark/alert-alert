@@ -390,23 +390,22 @@ def run_ffmpeg(args, env, timeout=120):
 
 
 def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audio=False,
-                            quality="medium", audio_bitrate="192", buffer_duration=2):
+                            resolution=720, buffer_duration=2, normalize_audio=True):
     """Run the full ffmpeg pipeline in a background thread.
     
     Audio Quality Strategy:
     - Extract audio to lossless PCM WAV for all processing stages
-    - Apply loudnorm filter on PCM (no generation loss)
-    - Only encode to AAC once at the very end
+    - Apply loudnorm filter on PCM (no generation loss) if normalize_audio is True
+    - Only encode to AAC once at the very end at 192kbps
     - If using separate audio source, replace video audio before processing
     
     Settings:
-    - quality: "high" (CRF 18), "medium" (CRF 23), "low" (CRF 28)
-    - audio_bitrate: kbps as string ("128", "192", "256", "320")
+    - resolution: output size in pixels (480, 720, 1080)
     - buffer_duration: seconds of still frame buffer at end
+    - normalize_audio: whether to apply loudness normalization
     """
-    # Map quality to CRF values
-    crf_map = {"high": "18", "medium": "23", "low": "28"}
-    crf = crf_map.get(quality, "23")
+    # Resolution determines output size
+    output_size = int(resolution)
     env = get_env()
     try:
         job_dir = DOWNLOADS_DIR / job_id
@@ -478,7 +477,7 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
         # Crop video only (no audio)
         run_ffmpeg([
             FFMPEG, "-i", input_file,
-            "-vf", f"crop={crop_size}:{crop_size}:{crop_x}:{crop_y},scale=720:720",
+            "-vf", f"crop={crop_size}:{crop_size}:{crop_x}:{crop_y},scale={output_size}:{output_size}",
             "-an", "-y", cropped_video,
         ], env=env)
         
@@ -493,45 +492,51 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
             "-y", raw_audio,
         ], env=env)
 
-        # ── Stage 2a: Loudnorm measure (on PCM - no quality loss) ──
-        jobs[job_id] = {"status": "processing", "progress": 30, "stage": "Analyzing audio levels..."}
-        measure_result = subprocess.run([
-            FFMPEG, "-i", raw_audio,
-            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
-            "-f", "null", NULL_DEVICE,
-        ], capture_output=True, text=True, timeout=120, env=env)
+        # ── Stage 2: Audio processing ──
+        if normalize_audio:
+            # ── Stage 2a: Loudnorm measure (on PCM - no quality loss) ──
+            jobs[job_id] = {"status": "processing", "progress": 30, "stage": "Analyzing audio levels..."}
+            measure_result = subprocess.run([
+                FFMPEG, "-i", raw_audio,
+                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+                "-f", "null", NULL_DEVICE,
+            ], capture_output=True, text=True, timeout=120, env=env)
 
-        # Parse the loudnorm JSON from stderr
-        stderr_text = measure_result.stderr
-        marker = '"input_i"'
-        marker_pos = stderr_text.find(marker)
-        if marker_pos == -1:
-            jobs[job_id] = {"status": "error", "error": "Failed to measure audio loudness"}
-            return
-        json_start = stderr_text.rfind("{", 0, marker_pos)
-        json_end = stderr_text.find("}", marker_pos) + 1
-        measured = json.loads(stderr_text[json_start:json_end])
+            # Parse the loudnorm JSON from stderr
+            stderr_text = measure_result.stderr
+            marker = '"input_i"'
+            marker_pos = stderr_text.find(marker)
+            if marker_pos == -1:
+                jobs[job_id] = {"status": "error", "error": "Failed to measure audio loudness"}
+                return
+            json_start = stderr_text.rfind("{", 0, marker_pos)
+            json_end = stderr_text.find("}", marker_pos) + 1
+            measured = json.loads(stderr_text[json_start:json_end])
 
-        # ── Stage 2b: Loudnorm apply to PCM (still lossless) ──
-        jobs[job_id] = {"status": "processing", "progress": 45, "stage": "Normalizing audio..."}
-        normalized_audio = str(proc_dir / "normalized_audio.wav")
-        loudnorm_filter = (
-            f"loudnorm=I=-16:TP=-1.5:LRA=11"
-            f":measured_I={measured['input_i']}"
-            f":measured_TP={measured['input_tp']}"
-            f":measured_LRA={measured['input_lra']}"
-            f":measured_thresh={measured['input_thresh']}"
-            f":offset={measured['target_offset']}"
-            f":linear=true"
-        )
-        run_ffmpeg([
-            FFMPEG, "-i", raw_audio,
-            "-af", loudnorm_filter,
-            "-acodec", "pcm_s16le",
-            "-y", normalized_audio,
-        ], env=env)
+            # ── Stage 2b: Loudnorm apply to PCM (still lossless) ──
+            jobs[job_id] = {"status": "processing", "progress": 45, "stage": "Normalizing audio..."}
+            processed_audio = str(proc_dir / "processed_audio.wav")
+            loudnorm_filter = (
+                f"loudnorm=I=-16:TP=-1.5:LRA=11"
+                f":measured_I={measured['input_i']}"
+                f":measured_TP={measured['input_tp']}"
+                f":measured_LRA={measured['input_lra']}"
+                f":measured_thresh={measured['input_thresh']}"
+                f":offset={measured['target_offset']}"
+                f":linear=true"
+            )
+            run_ffmpeg([
+                FFMPEG, "-i", raw_audio,
+                "-af", loudnorm_filter,
+                "-acodec", "pcm_s16le",
+                "-y", processed_audio,
+            ], env=env)
+        else:
+            # Skip normalization, use raw audio directly
+            jobs[job_id] = {"status": "processing", "progress": 45, "stage": "Processing audio..."}
+            processed_audio = raw_audio
 
-        # ── Stage 3: Mux video + normalized audio ──
+        # ── Stage 3: Mux video + processed audio ──
         jobs[job_id] = {"status": "processing", "progress": 55, "stage": "Combining video and audio..."}
         cropped = str(proc_dir / "cropped.mp4")
         
@@ -545,7 +550,7 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
         video_duration = float(video_info.get("format", {}).get("duration", 0))
         
         run_ffmpeg([
-            FFMPEG, "-i", cropped_video, "-i", normalized_audio,
+            FFMPEG, "-i", cropped_video, "-i", processed_audio,
             "-c:v", "copy", "-c:a", "pcm_s16le",
             "-t", str(video_duration),  # Trim to video length
             "-map", "0:v:0", "-map", "1:a:0",
@@ -567,7 +572,7 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
                 FFMPEG, "-loop", "1", "-i", last_frame,
                 "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
                 "-c:v", "libx264", "-t", str(buffer_duration), "-pix_fmt", "yuv420p",
-                "-vf", "scale=720:720",
+                "-vf", f"scale={output_size}:{output_size}",
                 "-r", str(round(fps)), "-c:a", "pcm_s16le",
                 "-shortest", "-y", still_buffer,
             ], env=env, timeout=30)
@@ -595,8 +600,8 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_size, use_separate_audi
         output_file = str(OUTPUT_DIR / f"alert_{job_id}.mp4")
         run_ffmpeg([
             FFMPEG, "-i", final_input,
-            "-c:v", "libx264", "-crf", crf, "-preset", "medium",
-            "-c:a", "aac", "-b:a", f"{audio_bitrate}k",
+            "-c:v", "libx264", "-crf", "23", "-preset", "medium",
+            "-c:a", "aac", "-b:a", "192k",
             "-movflags", "+faststart",
             "-y", output_file,
         ], env=env)
@@ -624,9 +629,9 @@ def process_video():
     
     # Settings
     settings = data.get("settings", {})
-    quality = settings.get("quality", "medium")
-    audio_bitrate = settings.get("audioBitrate", "192")
+    resolution = int(settings.get("resolution", "720"))
     buffer_duration = int(settings.get("bufferDuration", "2"))
+    normalize_audio = settings.get("normalizeAudio", True)
 
     if not job_id:
         return jsonify({"error": "Missing job_id"}), 400
@@ -636,7 +641,7 @@ def process_video():
     thread = threading.Thread(
         target=run_processing_pipeline,
         args=(job_id, crop_x, crop_y, crop_size, use_separate_audio),
-        kwargs={"quality": quality, "audio_bitrate": audio_bitrate, "buffer_duration": buffer_duration},
+        kwargs={"resolution": resolution, "buffer_duration": buffer_duration, "normalize_audio": normalize_audio},
         daemon=True,
     )
     thread.start()

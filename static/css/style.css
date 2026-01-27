@@ -160,6 +160,59 @@ header h1 {
     transform: none;
 }
 
+.tooltip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    background: var(--border);
+    border-radius: 50%;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    cursor: help;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.tooltip-icon:hover {
+    background: var(--accent);
+    color: var(--bg-base);
+}
+
+.settings-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.settings-toggle label {
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.header-logo {
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    image-rendering: pixelated;
+}
+
 /* ── Banner ──────────────────────────────────────────────────── */
 .banner {
     padding: 12px 24px;
