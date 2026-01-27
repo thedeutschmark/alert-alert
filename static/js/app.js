@@ -422,7 +422,7 @@ const App = (() => {
         };
 
         // Start loading
-        video.src = `/api/serve-clip/${jobId}`;
+        video.src = `/api/serve-clip/${jobId}?t=${Date.now()}`;
 
         video.onloadedmetadata = () => {
             cropPreview.initialize(video.videoWidth, video.videoHeight);

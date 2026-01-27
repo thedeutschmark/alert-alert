@@ -11,7 +11,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
 import webbrowser
-import webview
+
 
 # Handle PyInstaller paths
 if getattr(sys, 'frozen', False):
@@ -113,6 +113,9 @@ def run_subprocess(cmd, timeout=30, text=True):
     }
     if platform.system() == "Windows":
         # Prevent console window from appearing
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        kwargs["startupinfo"] = startupinfo
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     
     return subprocess.run(cmd, **kwargs)
@@ -131,6 +134,10 @@ def index():
 def check_deps():
     results = {}
     # ffmpeg/ffprobe use -version (single dash), yt-dlp uses --version
+    # Cache to prevent repeated popups/checks
+    if getattr(check_deps, "cached_results", None):
+        return jsonify(check_deps.cached_results)
+
     tools = [
         ("ffmpeg", FFMPEG, ["-version"]),
         ("ffprobe", FFPROBE, ["-version"]),
@@ -150,6 +157,8 @@ def check_deps():
             results[name] = {"installed": False, "version": None}
         except subprocess.TimeoutExpired:
             results[name] = {"installed": False, "version": None}
+            
+    check_deps.cached_results = results
     return jsonify(results)
 
 
@@ -327,12 +336,22 @@ def video_info(job_id):
 
     input_file = str(files[0])
     try:
+        # Use CREATE_NO_WINDOW on Windows to prevent popups
+        kwargs = {
+            "capture_output": True,
+            "text": True,
+            "timeout": 15,
+            "env": get_env()
+        }
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
         r = subprocess.run(
             [
                 FFPROBE, "-v", "quiet", "-print_format", "json",
                 "-show_streams", "-show_format", input_file,
             ],
-            capture_output=True, text=True, timeout=15, env=get_env()
+            **kwargs
         )
         info = json.loads(r.stdout)
         video_stream = next(
@@ -750,7 +769,7 @@ def serve_clip(job_id):
     if not files:
         return jsonify({"error": "File not found"}), 404
     # Ensure range requests work (Flask send_file supports this by default)
-    return send_file(str(files[0]))
+    return send_file(str(files[0]), mimetype="video/mp4")
 
 
 # ── Cleanup ─────────────────────────────────────────────────────
@@ -772,21 +791,8 @@ if __name__ == "__main__":
     print(f"  ffprobe: {FFPROBE}")
     print(f"  yt-dlp:  {YTDLP}")
     
-    # Run Flask in a background thread
-    t = threading.Thread(target=lambda: app.run(port=5000, debug=False, use_reloader=False))
-    t.daemon = True
-    t.start()
-
-    # Launch Native GUI Window
-    # Provide a dedicated window like Stacher
-    webview.create_window(
-        "deutschmark's AlertBox", 
-        "http://127.0.0.1:5000",
-        width=1280,
-        height=900,
-        min_size=(900, 700),
-        background_color='#0f0f0f',
-        text_select=False
-    )
+    # Open the browser
+    webbrowser.open("http://127.0.0.1:5000")
     
-    webview.start(debug=False)
+    # Run Flask
+    app.run(port=5000, debug=False)
