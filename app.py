@@ -6,11 +6,13 @@ import glob
 import platform
 import subprocess
 import threading
+from functools import lru_cache
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
 import webbrowser
+import functools
 from urllib.parse import urlparse, parse_qs
 
 
@@ -90,6 +92,7 @@ DENO = find_tool("deno")
 FFMPEG_DIR = str(Path(FFMPEG).parent) if FFMPEG != "ffmpeg" else None
 
 # Build an env dict that includes ffmpeg and deno dirs on PATH
+@lru_cache(maxsize=1)
 def get_env():
     """Return an env dict with ffmpeg and deno directories added to PATH."""
     env = os.environ.copy()
@@ -227,6 +230,21 @@ def clean_video_url(url):
         return url
 
 
+@functools.lru_cache(maxsize=32)
+def _get_video_info(url):
+    """
+    Fetch video info from yt-dlp.
+    Raises exception on failure so lru_cache only caches success.
+    """
+    r = run_subprocess([YTDLP, "--dump-json", "--no-download", url], timeout=30)
+
+    if r.returncode != 0:
+        # Raise exception with the error message
+        raise RuntimeError(r.stderr.strip() or "Invalid URL")
+
+    return json.loads(r.stdout)
+
+
 @app.route("/api/validate-url", methods=["POST"])
 def validate_url():
     data = request.get_json()
@@ -241,13 +259,8 @@ def validate_url():
         return jsonify({"valid": False, "error": "No URL provided"}), 400
 
     try:
-        r = run_subprocess([YTDLP, "--dump-json", "--no-download", url], timeout=30)
+        info = _get_video_info(url)
         
-        if r.returncode != 0:
-            print(f"  Validation failed: {r.stderr.strip()[:100]}...")
-            return jsonify({"valid": False, "error": r.stderr.strip() or "Invalid URL"})
-
-        info = json.loads(r.stdout)
         title = info.get("title", "Unknown")
         print(f"  Validation success: {title}")
         return jsonify({
@@ -260,6 +273,9 @@ def validate_url():
         return jsonify({"valid": False, "error": "Request timed out"}), 504
     except json.JSONDecodeError:
         return jsonify({"valid": False, "error": "Failed to parse video info"}), 500
+    except RuntimeError as e:
+        print(f"  Validation failed: {str(e)[:100]}...")
+        return jsonify({"valid": False, "error": str(e)})
     except Exception as e:
         return jsonify({"valid": False, "error": str(e)}), 500
 
@@ -278,72 +294,39 @@ def parse_timestamp_to_seconds(ts):
         return parts[0]
 
 
-@app.route("/api/download", methods=["POST"])
-def download_clip():
-    data = request.get_json()
-    url = data.get("url", "").strip()
-    start = data.get("start", "").strip()
-    end = data.get("end", "").strip()
-    
-    # Clean URLs to remove playlist/radio parameters
-    url = clean_video_url(url)
-    
-    # Optional separate audio source
-    audio_url = data.get("audio_url", "").strip()
-    audio_url = clean_video_url(audio_url) if audio_url else ""
-    audio_start = data.get("audio_start", "").strip()
-    audio_end = data.get("audio_end", "").strip()
-    use_separate_audio = bool(audio_url and audio_start and audio_end)
-
-    if not url or not start or not end:
-        return jsonify({"error": "Missing url, start, or end"}), 400
-
-    start_sec = parse_timestamp_to_seconds(start)
-    end_sec = parse_timestamp_to_seconds(end)
-    if end_sec <= start_sec:
-        return jsonify({"error": "End time must be after start time"}), 400
-
-    if use_separate_audio:
-        audio_start_sec = parse_timestamp_to_seconds(audio_start)
-        audio_end_sec = parse_timestamp_to_seconds(audio_end)
-        if audio_end_sec <= audio_start_sec:
-            return jsonify({"error": "Audio end time must be after start time"}), 400
-
-    job_id = uuid.uuid4().hex[:8]
-    job_dir = DOWNLOADS_DIR / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    output_template = str(job_dir / "clip.%(ext)s")
-    section = f"*{start_sec}-{end_sec}"
-
-    jobs[job_id] = {"status": "downloading", "progress": 0, "stage": "Downloading video clip..."}
-    print(f"Starting download job {job_id} for {url} ({start}-{end})")
-
-
-    # Build yt-dlp command with --ffmpeg-location so it can find ffmpeg
-    ytdlp_cmd = [
-        YTDLP,
-        "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "--download-sections", section,
-        "--merge-output-format", "mp4",
-        "-o", output_template,
-    ]
-    if FFMPEG_DIR:
-        ytdlp_cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
-    ytdlp_cmd.append(url)
-
+def run_download_pipeline(job_id, url, start_sec, end_sec, use_separate_audio=False,
+                         audio_url="", audio_start_sec=0, audio_end_sec=0):
+    """Run the download pipeline in a background thread."""
     try:
+        job_dir = DOWNLOADS_DIR / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        output_template = str(job_dir / "clip.%(ext)s")
+        section = f"*{start_sec}-{end_sec}"
+
+        # Build yt-dlp command with --ffmpeg-location so it can find ffmpeg
+        ytdlp_cmd = [
+            YTDLP,
+            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--download-sections", section,
+            "--merge-output-format", "mp4",
+            "-o", output_template,
+        ]
+        if FFMPEG_DIR:
+            ytdlp_cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
+        ytdlp_cmd.append(url)
+
         r = run_subprocess(ytdlp_cmd, timeout=300)
         
         if r.returncode != 0:
             jobs[job_id] = {"status": "error", "error": r.stderr.strip() or "Download failed"}
-            return jsonify({"error": r.stderr.strip() or "Download failed"}), 500
+            return
 
         # Find the downloaded file
         files = list(job_dir.glob("clip.*"))
         if not files:
             jobs[job_id] = {"status": "error", "error": "No file downloaded"}
-            return jsonify({"error": "No file downloaded"}), 500
+            return
 
         filename = files[0].name
         
@@ -369,13 +352,13 @@ def download_clip():
             
             if r.returncode != 0:
                 jobs[job_id] = {"status": "error", "error": f"Audio download failed: {r.stderr.strip()}"}
-                return jsonify({"error": f"Audio download failed: {r.stderr.strip()}"}), 500
+                return
             
             # Find the audio file
             audio_files = list(job_dir.glob("audio.*"))
             if not audio_files:
                 jobs[job_id] = {"status": "error", "error": "No audio file downloaded"}
-                return jsonify({"error": "No audio file downloaded"}), 500
+                return
             
             jobs[job_id] = {
                 "status": "downloaded", 
@@ -383,24 +366,125 @@ def download_clip():
                 "audio_filename": audio_files[0].name,
                 "use_separate_audio": True
             }
-            return jsonify({
-                "job_id": job_id, 
-                "filename": filename, 
-                "audio_filename": audio_files[0].name,
-                "use_separate_audio": True,
-                "status": "downloaded"
-            })
+            return
         
         jobs[job_id] = {"status": "downloaded", "filename": filename, "use_separate_audio": False}
         print(f"Download job {job_id} complete: {filename}")
-        return jsonify({"job_id": job_id, "filename": filename, "status": "downloaded"})
 
     except subprocess.TimeoutExpired:
         jobs[job_id] = {"status": "error", "error": "Download timed out"}
-        return jsonify({"error": "Download timed out"}), 504
     except Exception as e:
         jobs[job_id] = {"status": "error", "error": str(e)}
-        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/download", methods=["POST"])
+def download_clip():
+    data = request.get_json()
+    url = data.get("url", "").strip()
+    start = data.get("start", "").strip()
+    end = data.get("end", "").strip()
+
+    # Clean URLs to remove playlist/radio parameters
+    url = clean_video_url(url)
+
+    # Optional separate audio source
+    audio_url = data.get("audio_url", "").strip()
+    audio_url = clean_video_url(audio_url) if audio_url else ""
+    audio_start = data.get("audio_start", "").strip()
+    audio_end = data.get("audio_end", "").strip()
+    use_separate_audio = bool(audio_url and audio_start and audio_end)
+
+    if not url or not start or not end:
+        return jsonify({"error": "Missing url, start, or end"}), 400
+
+    start_sec = parse_timestamp_to_seconds(start)
+    end_sec = parse_timestamp_to_seconds(end)
+    if end_sec <= start_sec:
+        return jsonify({"error": "End time must be after start time"}), 400
+
+    audio_start_sec = 0
+    audio_end_sec = 0
+    if use_separate_audio:
+        audio_start_sec = parse_timestamp_to_seconds(audio_start)
+        audio_end_sec = parse_timestamp_to_seconds(audio_end)
+        if audio_end_sec <= audio_start_sec:
+            return jsonify({"error": "Audio end time must be after start time"}), 400
+
+    job_id = uuid.uuid4().hex[:8]
+
+    jobs[job_id] = {"status": "downloading", "progress": 0, "stage": "Downloading video clip..."}
+    print(f"Starting download job {job_id} for {url} ({start}-{end})")
+
+    thread = threading.Thread(
+        target=run_download_pipeline,
+        args=(job_id, url, start_sec, end_sec, use_separate_audio, audio_url, audio_start_sec, audio_end_sec),
+        daemon=True
+    )
+    thread.start()
+
+    return jsonify({"job_id": job_id, "status": "downloading"})
+
+
+# ── Upload local video ───────────────────────────────────────────
+
+@app.route("/api/upload-video", methods=["POST"])
+def upload_video():
+    """Handle local video file upload."""
+    if 'video' not in request.files:
+        return jsonify({"error": "No video file provided"}), 400
+
+    file = request.files['video']
+    if not file.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    # Check file extension
+    allowed_extensions = {'mp4', 'mov', 'avi', 'mkv', 'webm', 'wmv', 'm4v'}
+    ext = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
+    if ext not in allowed_extensions:
+        return jsonify({"error": f"Unsupported file format. Allowed: {', '.join(allowed_extensions)}"}), 400
+
+    job_id = uuid.uuid4().hex[:8]
+    job_dir = DOWNLOADS_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save the uploaded file
+    save_path = job_dir / f"clip.{ext}"
+    file.save(str(save_path))
+
+    jobs[job_id] = {"status": "uploading", "progress": 50, "stage": "Processing upload..."}
+    print(f"Upload job {job_id}: saved {file.filename}")
+
+    # Get video duration using ffprobe
+    try:
+        kwargs = {
+            "capture_output": True,
+            "text": True,
+            "timeout": 15,
+            "env": get_env()
+        }
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+        r = subprocess.run(
+            [FFPROBE, "-v", "quiet", "-print_format", "json",
+             "-show_format", str(save_path)],
+            **kwargs
+        )
+        info = json.loads(r.stdout)
+        duration = float(info.get("format", {}).get("duration", 0))
+    except Exception as e:
+        print(f"Error getting video info: {e}")
+        duration = 0
+
+    jobs[job_id] = {"status": "downloaded", "filename": f"clip.{ext}"}
+    print(f"Upload job {job_id} complete: clip.{ext}, duration: {duration}s")
+
+    return jsonify({
+        "job_id": job_id,
+        "filename": f"clip.{ext}",
+        "duration": duration,
+        "status": "downloaded"
+    })
 
 
 # ── Video info ──────────────────────────────────────────────────
@@ -625,122 +709,124 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         crop_x = max(0, min(crop_x, src_width - crop_width))
         crop_y = max(0, min(crop_y, src_height - crop_height))
 
-        # ── Stage 1: Crop video + extract/replace audio to PCM ──
-        jobs[job_id] = {"status": "processing", "progress": 10, "stage": "Processing video..."}
-        cropped_video = str(proc_dir / "cropped_video.mp4")
         duration = trim_end - trim_start
-        
-        if use_static_image and static_image_file:
-             # Generate video loop from static image
-            vid_cmd = [
-                FFMPEG, "-y", 
-                "-loop", "1", "-i", static_image_file,
-                "-t", str(duration),
-                # Scale image to fit within output dimensions, padding with black (like 'contain')
-                "-vf", f"scale={output_width}:{output_height}:force_original_aspect_ratio=decrease,pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2,setsar=1",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30",
-                cropped_video
-            ]
-            run_ffmpeg(vid_cmd, env=env)
-        else:
-            # Crop video only (no audio)
-            # Apply trim if needed
-            vid_input_args = [FFMPEG, "-i", input_file]
-            vid_trim_args = []
-            if trim_start > 0:
-                vid_trim_args.extend(["-ss", str(trim_start)])
-            if trim_end > 0 and trim_end > trim_start:
-                 vid_trim_args.extend(["-t", str(duration)])
-    
-            vid_cmd = vid_input_args + vid_trim_args + [
-                "-vf", f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y},scale={output_width}:{output_height},setsar=1",
-                "-an", "-y", cropped_video,
-            ]
-            run_ffmpeg(vid_cmd, env=env)
-        
-        # Extract audio to lossless PCM WAV (from source or separate file)
-        jobs[job_id] = {"status": "processing", "progress": 20, "stage": "Extracting audio..."}
-        raw_audio = str(proc_dir / "raw_audio.wav")
         audio_source = separate_audio_file if separate_audio_file else input_file
         
-        aud_input_args = [FFMPEG, "-i", audio_source]
-        aud_trim_args = []
-        if trim_start > 0:
-            aud_trim_args.extend(["-ss", str(trim_start)])
-        if trim_end > 0 and trim_end > trim_start:
-             aud_trim_args.extend(["-t", str(trim_end - trim_start)])
-
-        aud_cmd = aud_input_args + aud_trim_args + [
-            "-vn", "-acodec", "pcm_s16le", "-ar", sample_rate, "-ac", "2",
-            "-y", raw_audio,
-        ]
+        # ── Stage 1: Audio Analysis (if needed) ──
+        measured_loudnorm_filter = ""
         
-        run_ffmpeg(aud_cmd, env=env)
-
-        # ── Stage 2: Audio processing ──
         if normalize_audio:
-            # ── Stage 2a: Loudnorm measure (on PCM - no quality loss) ──
-            jobs[job_id] = {"status": "processing", "progress": 30, "stage": "Analyzing audio levels..."}
-            measure_result = subprocess.run([
-                FFMPEG, "-i", raw_audio,
-                "-af", "loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
-                "-f", "null", NULL_DEVICE,
-            ], capture_output=True, text=True, timeout=120, env=env)
+            jobs[job_id] = {"status": "processing", "progress": 15, "stage": "Analyzing audio levels..."}
+
+            # Analyze source audio directly with trim applied
+            # Note: We duplicate the input args here for the analysis pass
+            analysis_args = [FFMPEG]
+            if trim_start > 0:
+                analysis_args.extend(["-ss", str(trim_start)])
+
+            analysis_args.extend(["-i", audio_source])
+
+            if trim_end > 0 and trim_end > trim_start:
+                 analysis_args.extend(["-t", str(duration)])
+
+            # Use resample to ensure consistent analysis
+            analysis_args.extend([
+                "-af", f"aresample={sample_rate},loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json",
+                "-f", "null", NULL_DEVICE
+            ])
+
+            measure_result = subprocess.run(
+                analysis_args, capture_output=True, text=True, timeout=120, env=env
+            )
 
             # Parse the loudnorm JSON from stderr
             stderr_text = measure_result.stderr
             marker = '"input_i"'
             marker_pos = stderr_text.find(marker)
-            if marker_pos == -1:
-                jobs[job_id] = {"status": "error", "error": "Failed to measure audio loudness"}
-                return
-            json_start = stderr_text.rfind("{", 0, marker_pos)
-            json_end = stderr_text.find("}", marker_pos) + 1
-            measured = json.loads(stderr_text[json_start:json_end])
+            if marker_pos != -1:
+                json_start = stderr_text.rfind("{", 0, marker_pos)
+                json_end = stderr_text.find("}", marker_pos) + 1
+                try:
+                    measured = json.loads(stderr_text[json_start:json_end])
+                    measured_loudnorm_filter = (
+                        f",loudnorm=I=-16:TP=-1.5:LRA=11"
+                        f":measured_I={measured['input_i']}"
+                        f":measured_TP={measured['input_tp']}"
+                        f":measured_LRA={measured['input_lra']}"
+                        f":measured_thresh={measured['input_thresh']}"
+                        f":offset={measured['target_offset']}"
+                        f":linear=true"
+                    )
+                except json.JSONDecodeError:
+                    print("Failed to parse loudnorm JSON, skipping normalization pass 2")
 
-            # ── Stage 2b: Loudnorm apply to PCM (still lossless) ──
-            jobs[job_id] = {"status": "processing", "progress": 45, "stage": "Normalizing audio..."}
-            processed_audio = str(proc_dir / "processed_audio.wav")
-            loudnorm_filter = (
-                f"loudnorm=I=-16:TP=-1.5:LRA=11"
-                f":measured_I={measured['input_i']}"
-                f":measured_TP={measured['input_tp']}"
-                f":measured_LRA={measured['input_lra']}"
-                f":measured_thresh={measured['input_thresh']}"
-                f":offset={measured['target_offset']}"
-                f":linear=true"
-            )
-            run_ffmpeg([
-                FFMPEG, "-i", raw_audio,
-                "-af", loudnorm_filter,
-                "-acodec", "pcm_s16le",
-                "-y", processed_audio,
-            ], env=env)
-        else:
-            # Skip normalization, use raw audio directly
-            jobs[job_id] = {"status": "processing", "progress": 45, "stage": "Processing audio..."}
-            processed_audio = raw_audio
-
-        # ── Stage 3: Mux video + processed audio ──
-        jobs[job_id] = {"status": "processing", "progress": 55, "stage": "Combining video and audio..."}
+        # ── Stage 2: Processing (Combined Video + Audio) ──
+        jobs[job_id] = {"status": "processing", "progress": 40, "stage": "Processing video and audio..."}
         cropped = str(proc_dir / "cropped.mp4")
         
-        # Get video duration to trim audio if needed
-        video_probe = run_ffmpeg(
-            [FFPROBE, "-v", "quiet", "-print_format", "json",
-             "-show_format", cropped_video],
-            env=env, timeout=15
-        )
-        video_info = json.loads(video_probe.stdout)
-        video_duration = float(video_info.get("format", {}).get("duration", 0))
+        # Build Filter Complex
+        # Video: [0:v]...[v]
+        # Audio: [1:a]...[a] (or [0:a] if same input)
         
-        run_ffmpeg([
-            FFMPEG, "-i", cropped_video, "-i", processed_audio,
-            "-c:v", "copy", "-c:a", "pcm_s16le",
-            "-t", str(video_duration),  # Trim to video length
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-y", cropped,
-        ], env=env)
+        cmd = [FFMPEG, "-y"]
+
+        # Input 0: Video Source
+        if use_static_image and static_image_file:
+             cmd.extend(["-loop", "1", "-i", static_image_file])
+             # Video filter for static image
+             vf = f"scale={output_width}:{output_height}:force_original_aspect_ratio=decrease,pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+        else:
+            if trim_start > 0:
+                cmd.extend(["-ss", str(trim_start)])
+            cmd.extend(["-i", input_file])
+            # Video filter for video clip
+            vf = f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y},scale={output_width}:{output_height},setsar=1"
+
+        # Input 1 (or 0): Audio Source
+        # If separate audio, it's a second input. If separate_audio is false but we used static image, we need audio from input_file.
+        # If normal video, audio is from Input 0.
+
+        separate_audio_input_idx = None
+
+        if use_separate_audio:
+            # Separate audio file is Input 1
+            if trim_start > 0:
+                cmd.extend(["-ss", str(trim_start)])
+            cmd.extend(["-i", separate_audio_file])
+            separate_audio_input_idx = 1
+        elif use_static_image:
+            # Audio comes from original video file, which must be Input 1 because Input 0 is image
+            if trim_start > 0:
+                cmd.extend(["-ss", str(trim_start)])
+            cmd.extend(["-i", input_file])
+            separate_audio_input_idx = 1
+        else:
+            # Audio comes from Input 0 (video file)
+            separate_audio_input_idx = 0
+
+        # Common Output Duration
+        if trim_end > 0 and trim_end > trim_start:
+             cmd.extend(["-t", str(duration)])
+
+        # Audio Filter Chain
+        # Always resample to PCM s16le compatible and stereo
+        af = f"aresample={sample_rate},aformat=channel_layouts=stereo"
+        if measured_loudnorm_filter:
+            af += measured_loudnorm_filter
+
+        # Filter Complex Construction
+        filter_complex = f"[0:v]{vf}[v];[{separate_audio_input_idx}:a]{af}[a]"
+
+        cmd.extend([
+            "-filter_complex", filter_complex,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", # Ensure video format matches previous intermediate
+            "-c:a", "pcm_s16le", # PCM audio
+            cropped
+        ])
+
+        # Run combined command
+        run_ffmpeg(cmd, env=env)
 
         # ── Stage 4: Extract last frame + create still buffer ──
         if buffer_duration > 0:
