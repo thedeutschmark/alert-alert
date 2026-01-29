@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
 import webbrowser
+from urllib.parse import urlparse, parse_qs
 
 
 # Handle PyInstaller paths
@@ -188,7 +189,6 @@ def clean_video_url(url):
     - YouTube: Remove playlist, radio, and other extra parameters
     - Instagram/TikTok: Pass through as-is (yt-dlp handles them natively)
     """
-    from urllib.parse import urlparse, parse_qs
     
     if not url:
         return url
