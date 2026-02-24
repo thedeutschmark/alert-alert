@@ -21,10 +21,6 @@ const App = (() => {
     let useStaticImage = false;
     let staticImageFile = null;
 
-    // Local video state
-    let sourceType = "url"; // "url" or "file"
-    let localVideoFile = null;
-
     // Trim state
     let trimStart = 0;
     let trimEnd = 0;
@@ -71,10 +67,8 @@ const App = (() => {
         if (loading) {
             btn.dataset.origText = btn.textContent;
             btn.textContent = "Working...";
-            startLoadingAnimation();
         } else {
             btn.textContent = btn.dataset.origText || btn.textContent;
-            stopLoadingAnimation();
         }
     }
 
@@ -191,22 +185,25 @@ const App = (() => {
             show(banner);
         }
 
+        // Auto-compute clip duration on timestamp change
+        $("start-input").addEventListener("input", updateClipDuration);
+        $("end-input").addEventListener("input", updateClipDuration);
+
         // Audio clip duration
         $("audio-start-input").addEventListener("input", updateAudioClipDuration);
         $("audio-end-input").addEventListener("input", updateAudioClipDuration);
 
         // Auto-format timestamps on blur
-        const timestampInputs = ["audio-start-input", "audio-end-input"];
+        const timestampInputs = ["start-input", "end-input", "audio-start-input", "audio-end-input"];
         timestampInputs.forEach(id => {
             $(id).addEventListener("blur", (e) => formatTimestampInput(e.target));
         });
 
-        // Basic trim sliders
-        $("trim-start-slider").addEventListener("input", onTrimSliderChange);
-        $("trim-end-slider").addEventListener("input", onTrimSliderChange);
-
-        // Volume slider
-        $("volume-slider").addEventListener("input", onVolumeChange);
+        // Filmstrip trimmer events
+        window.addEventListener("trimchange", (e) => {
+            trimStart = e.detail.start;
+            trimEnd = e.detail.end;
+        });
 
         // Allow Enter to validate
         $("url-input").addEventListener("keydown", (e) => {
@@ -224,10 +221,6 @@ const App = (() => {
         $("use-static-image").addEventListener("change", onStaticImageToggle);
         $("static-image-input").addEventListener("change", onStaticImageSelect);
 
-        // Local video file upload
-        $("local-video-input").addEventListener("change", onLocalVideoSelect);
-        setupFileDragDrop();
-
         // Close settings when clicking outside
         document.addEventListener("click", (e) => {
             const dropdown = document.querySelector(".settings-dropdown");
@@ -239,65 +232,16 @@ const App = (() => {
 
         // Load saved settings
         loadSettings();
-
-        // ASCII star animation
-        initStarAnimation();
     }
 
-    // Loading animation state
-    let loadingAnimationTimer = null;
-    let loadingCount = 0; // Track nested loading states
-
-    function initStarAnimation() {
-        // Just ensure bangs show static "!" on init
-        const bang1 = $("ascii-bang-1");
-        const bang2 = $("ascii-bang-2");
-        if (!bang1 || !bang2) return;
-        bang1.textContent = "!";
-        bang2.textContent = "!";
-    }
-
-    function startLoadingAnimation() {
-        loadingCount++;
-        if (loadingAnimationTimer) return; // Already animating
-
-        const bang1 = $("ascii-bang-1");
-        const bang2 = $("ascii-bang-2");
-        if (!bang1 || !bang2) return;
-
-        bang1.classList.add("loading");
-        bang2.classList.add("loading");
-
-        const frames = [".", "·", ":", "¡", "!", "❗", "‼", "❗", "!", "¡", ":", "·"];
-        let frameIndex1 = 0;
-        let frameIndex2 = 6;
-
-        loadingAnimationTimer = setInterval(() => {
-            bang1.textContent = frames[frameIndex1];
-            bang2.textContent = frames[frameIndex2];
-            frameIndex1 = (frameIndex1 + 1) % frames.length;
-            frameIndex2 = (frameIndex2 + 1) % frames.length;
-        }, 150);
-    }
-
-    function stopLoadingAnimation() {
-        loadingCount--;
-        if (loadingCount > 0) return; // Still have other loading operations
-        loadingCount = 0; // Ensure it doesn't go negative
-
-        if (loadingAnimationTimer) {
-            clearInterval(loadingAnimationTimer);
-            loadingAnimationTimer = null;
+    function updateClipDuration() {
+        const start = parseTimestamp($("start-input").value);
+        const end = parseTimestamp($("end-input").value);
+        if (end > start) {
+            $("clip-duration").textContent = `Clip: ${formatDuration(end - start)}`;
+        } else {
+            $("clip-duration").textContent = "";
         }
-
-        const bang1 = $("ascii-bang-1");
-        const bang2 = $("ascii-bang-2");
-        if (!bang1 || !bang2) return;
-
-        bang1.classList.remove("loading");
-        bang2.classList.remove("loading");
-        bang1.textContent = "!";
-        bang2.textContent = "!";
     }
 
     function updateAudioClipDuration() {
@@ -330,72 +274,7 @@ const App = (() => {
         };
     }
 
-    // ── Trim Slider Handlers ────────────────────────────────────
-
-    let clipDuration = 0; // Duration of the downloaded clip
-
-    function onTrimSliderChange() {
-        if (!clipDuration) return;
-
-        const startPct = parseFloat($("trim-start-slider").value);
-        const endPct = parseFloat($("trim-end-slider").value);
-
-        // Convert percentage to seconds
-        trimStart = (startPct / 100) * clipDuration;
-        trimEnd = (endPct / 100) * clipDuration;
-
-        // Ensure start doesn't exceed end
-        if (trimStart >= trimEnd - 0.5) {
-            if (this.id === "trim-start-slider") {
-                trimStart = trimEnd - 0.5;
-                $("trim-start-slider").value = (trimStart / clipDuration) * 100;
-            } else {
-                trimEnd = trimStart + 0.5;
-                $("trim-end-slider").value = (trimEnd / clipDuration) * 100;
-            }
-        }
-
-        // Update displays
-        $("trim-start-val").textContent = formatDuration(trimStart);
-        $("trim-end-val").textContent = formatDuration(trimEnd);
-        $("trim-duration").textContent = "Duration: " + formatDuration(trimEnd - trimStart);
-
-        // Sync video playback
-        const video = $("crop-video");
-        if (video && video.src) {
-            video.currentTime = trimStart;
-        }
-    }
-
-    function initTrimSliders(duration) {
-        clipDuration = duration;
-        trimStart = 0;
-        trimEnd = duration;
-
-        $("trim-start-slider").value = 0;
-        $("trim-end-slider").value = 100;
-        $("trim-start-val").textContent = formatDuration(0);
-        $("trim-end-val").textContent = formatDuration(duration);
-        $("trim-duration").textContent = "Duration: " + formatDuration(duration);
-    }
-
-    function onVolumeChange() {
-        const vol = parseInt($("volume-slider").value);
-        const video = $("crop-video");
-        if (video) {
-            video.volume = vol / 100;
-            video.muted = vol === 0;
-        }
-        $("volume-value").textContent = vol + "%";
-
-        // Update mute button state
-        const muteBtn = $("preview-mute-btn");
-        if (muteBtn) {
-            muteBtn.textContent = vol === 0 ? "🔇 Unmute" : "🔊 Mute";
-        }
-    }
-
-    // ── Step 1: Validate URL & Download ────────────────────────────────────
+    // ── Step 1: Validate URL ────────────────────────────────────
 
     async function validateUrl() {
         const url = $("url-input").value.trim();
@@ -408,10 +287,6 @@ const App = (() => {
         setLoading("validate-btn", true);
 
         try {
-            // Step 1: Validate the URL
-            $("download-status-text").textContent = "Validating URL...";
-            show("download-status");
-
             const data = await api("/api/validate-url", {
                 method: "POST",
                 body: JSON.stringify({ url }),
@@ -419,7 +294,6 @@ const App = (() => {
 
             if (!data.valid) {
                 showError("step1-error", data.error || "Invalid URL");
-                hide("download-status");
                 return;
             }
 
@@ -429,41 +303,14 @@ const App = (() => {
             $("video-duration").textContent = formatDuration(videoDuration);
             show("video-info");
 
-            // Step 2: Automatically download the full video
-            $("download-status-text").textContent = "Downloading video...";
+            // Auto-populate timestamps with full duration
+            $("start-input").value = "0:00";
+            $("end-input").value = formatDuration(videoDuration);
+            updateClipDuration();
 
-            const downloadData = await api("/api/download", {
-                method: "POST",
-                body: JSON.stringify({
-                    url: videoUrl,
-                    start: "0:00",
-                    end: formatDuration(videoDuration)
-                }),
-            });
-
-            if (downloadData.error) {
-                showError("step1-error", downloadData.error);
-                hide("download-status");
-                return;
-            }
-
-            jobId = downloadData.job_id;
-            $("download-status-text").textContent = "Loading preview...";
-
-            // Get video info
-            videoInfo = await api(`/api/video-info/${jobId}`);
-
-            // Load video preview
-            loadVideoPreview();
-
-            hide("download-status");
             enableStep(2);
-            enableStep(3);
-            enableStep(4);
-
         } catch (e) {
-            showError("step1-error", "Failed to load video. Is the server running?");
-            hide("download-status");
+            showError("step1-error", "Failed to validate URL. Is the server running?");
         } finally {
             setLoading("validate-btn", false);
         }
@@ -543,164 +390,76 @@ const App = (() => {
         }
     }
 
-    // ── Source Type Toggle ──────────────────────────────────────
+    // ── Step 2: Download Clip ───────────────────────────────────
 
-    function setSourceType(type) {
-        sourceType = type;
+    async function downloadClip() {
+        const start = $("start-input").value.trim();
+        const end = $("end-input").value.trim();
 
-        // Update button states
-        $("source-url-btn").classList.toggle("active", type === "url");
-        $("source-file-btn").classList.toggle("active", type === "file");
-
-        // Show/hide sections
-        if (type === "url") {
-            show("url-source-section");
-            hide("file-source-section");
-        } else {
-            hide("url-source-section");
-            show("file-source-section");
-        }
-
-        // Clear errors
-        hideError("step1-error");
-    }
-
-    function setupFileDragDrop() {
-        const dropZone = $("file-drop-zone");
-        if (!dropZone) return;
-
-        ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
-            dropZone.addEventListener(eventName, (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            });
-        });
-
-        ["dragenter", "dragover"].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => {
-                dropZone.classList.add("drag-over");
-            });
-        });
-
-        ["dragleave", "drop"].forEach(eventName => {
-            dropZone.addEventListener(eventName, () => {
-                dropZone.classList.remove("drag-over");
-            });
-        });
-
-        dropZone.addEventListener("drop", (e) => {
-            const files = e.dataTransfer.files;
-            if (files.length > 0 && files[0].type.startsWith("video/")) {
-                $("local-video-input").files = files;
-                onLocalVideoSelect({ target: { files } });
-            }
-        });
-
-        // Click anywhere on drop zone to open file picker
-        dropZone.addEventListener("click", (e) => {
-            if (e.target.tagName !== "BUTTON") {
-                $("local-video-input").click();
-            }
-        });
-    }
-
-    function onLocalVideoSelect(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        if (!file.type.startsWith("video/")) {
-            showError("step1-error", "Please select a video file.");
+        if (!start || !end) {
+            showError("step2-error", "Please enter start and end timestamps.");
             return;
         }
 
-        localVideoFile = file;
-        $("selected-file-name").textContent = file.name;
-        show("selected-file-info");
-        hideError("step1-error");
+        const startSec = parseTimestamp(start);
+        const endSec = parseTimestamp(end);
+        if (endSec <= startSec) {
+            showError("step2-error", "End time must be after start time.");
+            return;
+        }
 
-        // Automatically upload and process the file
-        uploadLocalVideo(file);
-    }
+        // Validate audio source if enabled
+        if (useSeparateAudio) {
+            if (!audioValidated) {
+                showError("step2-error", "Please validate the audio URL first.");
+                return;
+            }
 
-    async function uploadLocalVideo(file) {
-        setLoading("source-file-btn", true);
-        $("download-status-text").textContent = "Uploading video...";
+            const audioStart = $("audio-start-input").value.trim();
+            const audioEnd = $("audio-end-input").value.trim();
+
+            if (!audioStart || !audioEnd) {
+                showError("step2-error", "Please enter audio start and end timestamps.");
+                return;
+            }
+
+            const audioStartSec = parseTimestamp(audioStart);
+            const audioEndSec = parseTimestamp(audioEnd);
+            if (audioEndSec <= audioStartSec) {
+                showError("step2-error", "Audio end time must be after start time.");
+                return;
+            }
+        }
+
+        hideError("step2-error");
+        setLoading("download-btn", true);
+        $("download-status-text").textContent = "Downloading video clip...";
         show("download-status");
 
         try {
-            const formData = new FormData();
-            formData.append("video", file);
+            // Build request body
+            const requestBody = { url: videoUrl, start, end };
 
-            const resp = await fetch("/api/upload-video", {
+            if (useSeparateAudio) {
+                requestBody.audio_url = audioUrl;
+                requestBody.audio_start = $("audio-start-input").value.trim();
+                requestBody.audio_end = $("audio-end-input").value.trim();
+            }
+
+            const data = await api("/api/download", {
                 method: "POST",
-                body: formData,
+                body: JSON.stringify(requestBody),
             });
 
-            const data = await resp.json();
-
             if (data.error) {
-                showError("step1-error", data.error);
+                showError("step2-error", data.error);
                 hide("download-status");
-                setLoading("download-btn", false);
                 return;
             }
 
             jobId = data.job_id;
-            videoDuration = data.duration || 0;
-            $("video-title").textContent = file.name;
-            $("video-duration").textContent = formatDuration(videoDuration);
-            show("video-info");
+            $("download-status-text").textContent = "Downloaded! Loading preview...";
 
-            $("download-status-text").textContent = "Loading preview...";
-
-            // Poll for completion
-            pollDownload(jobId);
-
-        } catch (e) {
-            showError("step2-error", "Download failed: " + e.message);
-            hide("download-status");
-            setLoading("download-btn", false);
-        }
-    }
-
-    function pollDownload(id) {
-        if (pollTimer) clearInterval(pollTimer);
-
-        pollTimer = setInterval(async () => {
-             try {
-                const data = await api(`/api/status/${id}`);
-
-                if (data.status === "error") {
-                    clearInterval(pollTimer);
-                    pollTimer = null;
-                    showError("step2-error", data.error || "Download failed");
-                    hide("download-status");
-                    setLoading("download-btn", false);
-                    return;
-                }
-
-                if (data.status === "downloaded") {
-                    clearInterval(pollTimer);
-                    pollTimer = null;
-                    $("download-status-text").textContent = "Downloaded! Loading preview...";
-
-                    finishDownload();
-                    return;
-                }
-
-                // Update progress text if needed
-                if (data.stage) {
-                     $("download-status-text").textContent = data.stage;
-                }
-
-             } catch (e) {
-                 // ignore network errors, retry
-             }
-        }, 1000);
-    }
-
-    async function finishDownload() {
-        try {
             // Get video info
             videoInfo = await api(`/api/video-info/${jobId}`);
 
@@ -708,19 +467,18 @@ const App = (() => {
             loadVideoPreview();
 
             hide("download-status");
-            enableStep(2);
             enableStep(3);
             enableStep(4);
 
         } catch (e) {
-            showError("step1-error", "Failed to load video: " + e.message);
+            showError("step2-error", "Download failed: " + e.message);
             hide("download-status");
         } finally {
-            setLoading("source-file-btn", false);
+            setLoading("download-btn", false);
         }
     }
 
-    // ── Video Preview ────────────────────────────────────────────
+    // ── Step 3: Crop Preview ────────────────────────────────────
 
     function loadVideoPreview() {
         if (!cropPreview) {
@@ -730,10 +488,12 @@ const App = (() => {
         // Reset previous state
         cropPreview.reset();
 
-        // Show the video sidebar
-        show("video-sidebar");
-
         const video = document.getElementById("crop-video");
+
+        // Set up one-time listener for metadata load
+        video.onloadedmetadata = () => {
+            cropPreview.initialize(video.videoWidth, video.videoHeight);
+        };
 
         video.onerror = () => {
             console.error("Video load error");
@@ -746,16 +506,20 @@ const App = (() => {
         video.onloadedmetadata = () => {
             cropPreview.initialize(video.videoWidth, video.videoHeight);
 
-            // Initialize trim sliders
+            // Initialize filmstrip trimmer
             const dur = video.duration;
-            initTrimSliders(dur);
+            trimStart = 0;
+            trimEnd = dur;
+
+            // Initialize the filmstrip trimmer
+            if (typeof filmstripTrimmer !== "undefined") {
+                filmstripTrimmer.initialize(video, dur);
+            }
         };
 
-        // Handle looping within trim region
+        // Let the filmstrip trimmer handle playback looping
         video.ontimeupdate = () => {
-            if (!video.paused && video.currentTime >= trimEnd) {
-                video.currentTime = trimStart;
-            }
+            // Only handle looping if video is playing from crop preview (not trimmer)
         };
     }
 
@@ -932,7 +696,7 @@ const App = (() => {
     return {
         validateUrl,
         validateAudioUrl,
-        setSourceType,
+        downloadClip,
         processVideo,
         downloadResult,
         toggleSettings,
