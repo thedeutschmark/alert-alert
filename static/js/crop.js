@@ -9,11 +9,16 @@ class CropPreview {
     constructor() {
         this.container = document.getElementById("crop-container");
         this.video = document.getElementById("crop-video");
+        this.image = document.getElementById("crop-image");
         this.overlay = document.getElementById("crop-overlay");
         this.coordsDisplay = document.getElementById("crop-coords");
         this.zoomSlider = document.getElementById("zoom-slider");
         this.zoomValue = document.getElementById("zoom-value");
         this.ratioButtons = document.getElementById("ratio-buttons");
+        this.activeMedia = this.video;
+        this.resizeLocked = false;
+        this.lockedCropParams = null;
+        this.resizeObserver = null;
 
         // Controls
         this.playBtn = document.getElementById("preview-play-btn");
@@ -23,6 +28,8 @@ class CropPreview {
         this.videoHeight = 0;
         this.displayWidth = 0;
         this.displayHeight = 0;
+        this.displayOffsetX = 0;
+        this.displayOffsetY = 0;
         this.scale = 1;
 
         // Aspect ratio (width:height) - default 1:1
@@ -43,27 +50,91 @@ class CropPreview {
         this._onTouchMove = this._onTouchMove.bind(this);
         this._onTouchEnd = this._onTouchEnd.bind(this);
         this._onResize = this._onResize.bind(this);
+        this._onObservedResize = this._onObservedResize.bind(this);
 
         this._setupEvents();
         this._setupMediaControls();
 
         // Handle window resize
         window.addEventListener("resize", this._onResize);
+
+        // Handle layout shifts (scrollbar appearance/content expansion) that can move media
+        // without triggering a window resize.
+        if (typeof ResizeObserver !== "undefined") {
+            this.resizeObserver = new ResizeObserver(this._onObservedResize);
+            this.resizeObserver.observe(this.container);
+            this.resizeObserver.observe(this.video);
+            if (this.image) this.resizeObserver.observe(this.image);
+        }
     }
 
     _onResize() {
+        if (this.videoWidth <= 0) return;
+        requestAnimationFrame(() => {
+            const metrics = this._syncDisplayMetrics();
+            if (metrics.width <= 0) return;
+            if (this.resizeLocked) {
+                this._applyLockedCropToDisplay();
+                return;
+            }
+            this._applyZoom();
+        });
+    }
+
+    _onObservedResize() {
+        if (this.videoWidth <= 0) return;
         if (this.videoWidth > 0) {
-            // Recalculate display dimensions and reapply zoom
             requestAnimationFrame(() => {
-                const rect = this.video.getBoundingClientRect();
-                if (rect.width > 0) {
-                    this.displayWidth = rect.width;
-                    this.displayHeight = rect.height;
-                    this.scale = this.displayWidth / this.videoWidth;
-                    this._applyZoom();
+                const metrics = this._syncDisplayMetrics();
+                if (metrics.width <= 0) return;
+                if (this.resizeLocked) {
+                    this._applyLockedCropToDisplay();
+                    return;
                 }
+                this._applyZoom();
             });
         }
+    }
+
+    setResizeLock(locked) {
+        this.resizeLocked = !!locked;
+        if (this.resizeLocked) {
+            this.lockedCropParams = this.getCropParams();
+            this._applyLockedCropToDisplay();
+        } else {
+            this.lockedCropParams = null;
+        }
+    }
+
+    realignLockedOverlay() {
+        if (!this.resizeLocked || !this.lockedCropParams) return;
+        this._applyLockedCropToDisplay();
+    }
+
+    _applyLockedCropToDisplay() {
+        if (!this.lockedCropParams) return;
+
+        const metrics = this._syncDisplayMetrics();
+        const scale = metrics.scale || 1;
+        if (metrics.width <= 0 || metrics.height <= 0 || scale <= 0) return;
+
+        const cropWidth = this.lockedCropParams.width * scale;
+        const cropHeight = this.lockedCropParams.height * scale;
+
+        const minX = metrics.offsetX;
+        const minY = metrics.offsetY;
+        const maxX = metrics.offsetX + metrics.width - cropWidth;
+        const maxY = metrics.offsetY + metrics.height - cropHeight;
+        const desiredX = metrics.offsetX + (this.lockedCropParams.x * scale);
+        const desiredY = metrics.offsetY + (this.lockedCropParams.y * scale);
+        const clampedX = Math.max(minX, Math.min(maxX, desiredX));
+        const clampedY = Math.max(minY, Math.min(maxY, desiredY));
+
+        this.overlay.style.width = cropWidth + "px";
+        this.overlay.style.height = cropHeight + "px";
+        this.overlay.style.left = clampedX + "px";
+        this.overlay.style.top = clampedY + "px";
+        this._updateCoords();
     }
 
     _setupMediaControls() {
@@ -92,9 +163,14 @@ class CropPreview {
      */
     reset() {
         this.video.classList.add("hidden");
+        if (this.image) {
+            this.image.classList.add("hidden");
+            this.image.src = "";
+        }
         this.overlay.classList.add("hidden");
         this.video.pause();
         this.video.src = "";
+        this.activeMedia = this.video;
         if (this.playBtn) this.playBtn.textContent = "▶ Play";
     }
 
@@ -103,11 +179,13 @@ class CropPreview {
      * Call after the preview video has loaded.
      */
     initialize(videoWidth, videoHeight) {
+        this.activeMedia = this.video;
         this.videoWidth = videoWidth;
         this.videoHeight = videoHeight;
 
         // Show video and overlay
         this.video.classList.remove("hidden");
+        if (this.image) this.image.classList.add("hidden");
         this.overlay.classList.remove("hidden");
 
         // Reset controls
@@ -118,22 +196,7 @@ class CropPreview {
         // Wait for render layout - use double RAF to ensure layout is complete
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                const rect = this.video.getBoundingClientRect();
-                // Fallback to video dimensions if rect is 0 (hidden)
-                this.displayWidth = rect.width || videoWidth;
-                this.displayHeight = rect.height || videoHeight;
-
-                if (this.displayWidth === 0) {
-                    // Force a layout read if still 0
-                    this.displayWidth = this.video.videoWidth;
-                    this.displayHeight = this.video.videoHeight;
-                }
-
-                this.scale = this.displayWidth / this.videoWidth;
-
-                // Don't set fixed container size - let it be dynamic
-                // this.container.style.width = this.displayWidth + "px";
-                // this.container.style.height = this.displayHeight + "px";
+                this._syncDisplayMetrics();
 
                 // Apply current zoom and ratio
                 this._applyZoom();
@@ -144,23 +207,97 @@ class CropPreview {
     }
 
     /**
+     * Initialize crop preview using a static image.
+     */
+    initializeImage(imageUrl, imageWidth = 0, imageHeight = 0) {
+        if (!this.image) return;
+
+        this.activeMedia = this.image;
+        this.video.pause();
+        this.video.classList.add("hidden");
+
+        this.image.classList.remove("hidden");
+        this.overlay.classList.remove("hidden");
+
+        const finalize = () => {
+            this.videoWidth = imageWidth || this.image.naturalWidth || 1;
+            this.videoHeight = imageHeight || this.image.naturalHeight || 1;
+            this._syncDisplayMetrics();
+            this._applyZoom();
+            this.overlay.classList.remove("hidden");
+        };
+
+        if (this.image.src !== imageUrl) {
+            this.image.onload = () => {
+                finalize();
+            };
+            this.image.src = imageUrl;
+        } else {
+            finalize();
+        }
+    }
+
+    /**
+     * Measure the rendered video area inside the container.
+     * Needed because object-fit/centering introduces letterbox offsets.
+     */
+    _syncDisplayMetrics() {
+        const media = this.activeMedia || this.video;
+        const mediaRect = media.getBoundingClientRect();
+        const containerRect = this.container.getBoundingClientRect();
+
+        const width = mediaRect.width || this.displayWidth || this.videoWidth;
+        const height = mediaRect.height || this.displayHeight || this.videoHeight;
+
+        const rawOffsetX = mediaRect.left - containerRect.left;
+        const rawOffsetY = mediaRect.top - containerRect.top;
+        const offsetX = Number.isFinite(rawOffsetX) ? rawOffsetX : this.displayOffsetX;
+        const offsetY = Number.isFinite(rawOffsetY) ? rawOffsetY : this.displayOffsetY;
+
+        if (width > 0) this.displayWidth = width;
+        if (height > 0) this.displayHeight = height;
+        this.displayOffsetX = offsetX || 0;
+        this.displayOffsetY = offsetY || 0;
+        this.scale = this.videoWidth > 0 ? (this.displayWidth / this.videoWidth) : 1;
+
+        return {
+            width: this.displayWidth,
+            height: this.displayHeight,
+            offsetX: this.displayOffsetX,
+            offsetY: this.displayOffsetY,
+            scale: this.scale,
+        };
+    }
+
+    /**
      * Returns crop parameters in original video pixel coordinates.
      */
     getCropParams() {
-        // Recalculate scale based on current video display size
-        const rect = this.video.getBoundingClientRect();
-        const currentDisplayWidth = rect.width || this.videoWidth;
-        const currentDisplayHeight = rect.height || this.videoHeight;
-        const currentScale = currentDisplayWidth / this.videoWidth;
+        if (this.resizeLocked && this.lockedCropParams) {
+            return {
+                x: this.lockedCropParams.x,
+                y: this.lockedCropParams.y,
+                width: this.lockedCropParams.width,
+                height: this.lockedCropParams.height,
+                ratio: this.lockedCropParams.ratio || this.ratioLabel,
+            };
+        }
 
-        const cropDisplayWidth = parseFloat(this.overlay.style.width);
-        const cropDisplayHeight = parseFloat(this.overlay.style.height);
-        const displayX = parseFloat(this.overlay.style.left) || 0;
-        const displayY = parseFloat(this.overlay.style.top) || 0;
+        const metrics = this._syncDisplayMetrics();
+        const currentScale = metrics.scale || 1;
+        const rawCropDisplayWidth = parseFloat(this.overlay.style.width);
+        const rawCropDisplayHeight = parseFloat(this.overlay.style.height);
+        const rawDisplayX = parseFloat(this.overlay.style.left);
+        const rawDisplayY = parseFloat(this.overlay.style.top);
+
+        const cropDisplayWidth = Number.isFinite(rawCropDisplayWidth) ? rawCropDisplayWidth : 0;
+        const cropDisplayHeight = Number.isFinite(rawCropDisplayHeight) ? rawCropDisplayHeight : 0;
+        const displayX = (Number.isFinite(rawDisplayX) ? rawDisplayX : metrics.offsetX) - metrics.offsetX;
+        const displayY = (Number.isFinite(rawDisplayY) ? rawDisplayY : metrics.offsetY) - metrics.offsetY;
 
         return {
-            x: Math.round(displayX / currentScale),
-            y: Math.round(displayY / currentScale),
+            x: Math.round(Math.max(0, displayX) / currentScale),
+            y: Math.round(Math.max(0, displayY) / currentScale),
             width: Math.round(cropDisplayWidth / currentScale),
             height: Math.round(cropDisplayHeight / currentScale),
             ratio: this.ratioLabel,
@@ -230,17 +367,24 @@ class CropPreview {
     }
 
     _applyZoom() {
-        // Get current video display dimensions
-        const rect = this.video.getBoundingClientRect();
-        const displayWidth = rect.width || this.displayWidth;
-        const displayHeight = rect.height || this.displayHeight;
+        // Keep prior display metrics so center can be preserved proportionally
+        // when the preview area resizes (instead of drifting toward top-left).
+        const prevDisplayWidth = this.displayWidth;
+        const prevDisplayHeight = this.displayHeight;
+        const prevOffsetX = this.displayOffsetX;
+        const prevOffsetY = this.displayOffsetY;
+        const rawOldWidth = parseFloat(this.overlay.style.width);
+        const rawOldHeight = parseFloat(this.overlay.style.height);
+        const rawOldX = parseFloat(this.overlay.style.left);
+        const rawOldY = parseFloat(this.overlay.style.top);
+
+        const metrics = this._syncDisplayMetrics();
+        const displayWidth = metrics.width;
+        const displayHeight = metrics.height;
+        const offsetX = metrics.offsetX;
+        const offsetY = metrics.offsetY;
 
         if (displayWidth === 0 || displayHeight === 0) return;
-
-        // Update cached values
-        this.displayWidth = displayWidth;
-        this.displayHeight = displayHeight;
-        this.scale = displayWidth / this.videoWidth;
 
         // Calculate max crop dimensions that fit within the display area
         // while maintaining the aspect ratio
@@ -272,18 +416,31 @@ class CropPreview {
         const cropWidth = minCropWidth + (maxCropWidth - minCropWidth) * (this.zoomPct / 100);
         const cropHeight = minCropHeight + (maxCropHeight - minCropHeight) * (this.zoomPct / 100);
 
-        // Get old position to maintain center (as percentage of display)
-        const oldWidth = parseFloat(this.overlay.style.width) || cropWidth;
-        const oldHeight = parseFloat(this.overlay.style.height) || cropHeight;
-        const oldX = parseFloat(this.overlay.style.left) || 0;
-        const oldY = parseFloat(this.overlay.style.top) || 0;
+        // Get old position to maintain center (as percentage of previous display)
+        const oldWidth = Number.isFinite(rawOldWidth) ? rawOldWidth : cropWidth;
+        const oldHeight = Number.isFinite(rawOldHeight) ? rawOldHeight : cropHeight;
+        let centerXPct = 0.5;
+        let centerYPct = 0.5;
 
-        // Calculate center as percentage for more stable positioning
-        const oldCenterX = oldX + oldWidth / 2;
-        const oldCenterY = oldY + oldHeight / 2;
+        if (Number.isFinite(rawOldX) && Number.isFinite(rawOldY) && prevDisplayWidth > 0 && prevDisplayHeight > 0) {
+            const oldXPrev = rawOldX - prevOffsetX;
+            const oldYPrev = rawOldY - prevOffsetY;
+            centerXPct = (oldXPrev + oldWidth / 2) / prevDisplayWidth;
+            centerYPct = (oldYPrev + oldHeight / 2) / prevDisplayHeight;
+        } else if (Number.isFinite(rawOldX) && Number.isFinite(rawOldY) && displayWidth > 0 && displayHeight > 0) {
+            const oldX = rawOldX - offsetX;
+            const oldY = rawOldY - offsetY;
+            centerXPct = (oldX + oldWidth / 2) / displayWidth;
+            centerYPct = (oldY + oldHeight / 2) / displayHeight;
+        }
 
-        let newX = oldCenterX - cropWidth / 2;
-        let newY = oldCenterY - cropHeight / 2;
+        centerXPct = Math.max(0, Math.min(1, centerXPct));
+        centerYPct = Math.max(0, Math.min(1, centerYPct));
+
+        const newCenterX = centerXPct * displayWidth;
+        const newCenterY = centerYPct * displayHeight;
+        let newX = newCenterX - cropWidth / 2;
+        let newY = newCenterY - cropHeight / 2;
 
         // Clamp to bounds
         const maxX = displayWidth - cropWidth;
@@ -293,8 +450,8 @@ class CropPreview {
 
         this.overlay.style.width = cropWidth + "px";
         this.overlay.style.height = cropHeight + "px";
-        this.overlay.style.left = newX + "px";
-        this.overlay.style.top = newY + "px";
+        this.overlay.style.left = (offsetX + newX) + "px";
+        this.overlay.style.top = (offsetY + newY) + "px";
 
         this._updateCoords();
     }
@@ -332,18 +489,21 @@ class CropPreview {
         const dx = clientX - this.dragStartX;
         const dy = clientY - this.dragStartY;
 
-        // Get current video display dimensions
-        const rect = this.video.getBoundingClientRect();
-        const displayWidth = rect.width || this.displayWidth;
-        const displayHeight = rect.height || this.displayHeight;
+        const metrics = this._syncDisplayMetrics();
+        const displayWidth = metrics.width;
+        const displayHeight = metrics.height;
+        const offsetX = metrics.offsetX;
+        const offsetY = metrics.offsetY;
 
         const cropWidth = parseFloat(this.overlay.style.width);
         const cropHeight = parseFloat(this.overlay.style.height);
-        const maxX = displayWidth - cropWidth;
-        const maxY = displayHeight - cropHeight;
+        const minX = offsetX;
+        const minY = offsetY;
+        const maxX = offsetX + displayWidth - cropWidth;
+        const maxY = offsetY + displayHeight - cropHeight;
 
-        const newX = Math.max(0, Math.min(maxX, this.overlayStartX + dx));
-        const newY = Math.max(0, Math.min(maxY, this.overlayStartY + dy));
+        const newX = Math.max(minX, Math.min(maxX, this.overlayStartX + dx));
+        const newY = Math.max(minY, Math.min(maxY, this.overlayStartY + dy));
 
         this.overlay.style.left = newX + "px";
         this.overlay.style.top = newY + "px";
