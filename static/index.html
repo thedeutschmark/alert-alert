@@ -14,84 +14,12 @@
             <h1 class="logo-text">Alert<span class="ascii-bang" id="ascii-bang-1">!</span> Alert<span class="ascii-bang" id="ascii-bang-2">!</span></h1>
         </div>
         <div class="header-actions">
-            <div class="settings-dropdown">
-                <button id="settings-btn" class="settings-btn" onclick="App.toggleSettings()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3"></circle>
-                        <path
-                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
-                        </path>
-                    </svg>
-                </button>
-                <div id="settings-menu" class="settings-menu hidden">
-                    <div class="settings-section">
-                        <label class="settings-label">Output Resolution</label>
-                        <select id="setting-resolution" class="settings-select">
-                            <option value="480">480p (480×480)</option>
-                            <option value="720" selected>720p (720×720)</option>
-                            <option value="1080">1080p (1080×1080)</option>
-                        </select>
-                    </div>
-                    <div class="settings-section">
-                        <label class="settings-label">
-                            End Buffer
-                            <span class="tooltip-icon"
-                                data-tooltip="Adds a freeze-frame at the end of the clip. Useful for stream alerts that need time to fade out.">?</span>
-                        </label>
-                        <select id="setting-buffer" class="settings-select">
-                            <option value="0">None</option>
-                            <option value="1">1 second</option>
-                            <option value="2" selected>2 seconds</option>
-                            <option value="3">3 seconds</option>
-                            <option value="5">5 seconds</option>
-                        </select>
-                    </div>
-                    <div class="settings-section">
-                        <label class="settings-label">
-                            Audio Normalization
-                            <span class="tooltip-icon"
-                                data-tooltip="Automatically adjusts audio levels to broadcast standard (-16 LUFS). Disable to preserve original audio levels.">?</span>
-                        </label>
-                        <div class="settings-toggle">
-                            <input type="checkbox" id="setting-normalize-audio" checked>
-                            <label for="setting-normalize-audio">Normalize audio levels</label>
-                        </div>
-                    </div>
-                    <div class="settings-divider"></div>
-
-                    <div class="settings-section">
-                        <label class="settings-label">Required Dependencies</label>
-                        <div class="dep-links">
-                            <a href="https://ffmpeg.org/download.html" target="_blank" class="dep-link">
-                                <span class="dep-icon">🎬</span>
-                                <span class="dep-name">FFmpeg</span>
-                                <span class="dep-status" id="dep-ffmpeg-status">checking...</span>
-                            </a>
-                            <a href="https://github.com/yt-dlp/yt-dlp/releases/latest" target="_blank" class="dep-link">
-                                <span class="dep-icon">📥</span>
-                                <span class="dep-name">yt-dlp</span>
-                                <span class="dep-status" id="dep-ytdlp-status">checking...</span>
-                            </a>
-                        </div>
-                        <div class="settings-hint">
-                            <p><strong>Missing something?</strong></p>
-                            <ol style="margin-left: 1.2rem; margin-top: 0.5rem; text-align: left;">
-                                <li><strong>FFmpeg:</strong> Open Command Prompt as Admin and run:
-                                    <code>winget install Gyan.FFmpeg</code></li>
-                                <li><strong>yt-dlp:</strong> Run: <code>pip install yt-dlp</code></li>
-                                <li>Restart this app after installing.</li>
-                            </ol>
-                        </div>
-                    </div>
-
-                    <div class="settings-divider"></div>
-                    <button class="settings-reset" onclick="App.resetSettings()">Reset to Defaults</button>
-                    <div class="settings-divider"></div>
-                    <button class="settings-quit" onclick="App.shutdownApp()"
-                        style="width:100%;padding:0.75rem;margin-top:0.5rem;background:#ff4444;color:white;border:none;border-radius:4px;cursor:pointer;font-weight:600;">Quit
-                        App</button>
-                </div>
-            </div>
+            <button class="header-chip-btn" type="button"
+                onclick="App.openSettingsPanel('dependency-settings-panel', 'step-1')">Dependencies</button>
+            <button class="header-chip-btn" type="button"
+                onclick="App.openSettingsPanel('audio-settings-panel', 'step-2')">Audio Settings</button>
+            <button class="header-chip-btn" type="button"
+                onclick="App.openSettingsPanel('output-settings-panel', 'step-4')">Output Settings</button>
         </div>
     </header>
 
@@ -106,14 +34,16 @@
         <aside class="video-sidebar hidden" id="video-sidebar">
             <div class="video-preview-sticky">
                 <div id="crop-container">
-                    <video id="crop-video" loop muted playsinline></video>
+                    <video id="crop-video" muted playsinline></video>
+                    <img id="crop-image" class="hidden" alt="Static image crop preview"
+                        style="display:block;max-width:100%;max-height:calc(100vh - 250px);width:auto;height:auto;object-fit:contain;pointer-events:none;">
                     <div id="crop-overlay" class="hidden"></div>
                 </div>
-                <div class="preview-controls">
+                <div class="preview-controls" id="preview-controls">
                     <button id="preview-play-btn" class="control-btn">▶ Play</button>
                     <button id="preview-mute-btn" class="control-btn">🔇 Unmute</button>
                 </div>
-                <div class="volume-control">
+                <div class="volume-control" id="preview-volume-control">
                     <span class="volume-icon">🔊</span>
                     <input type="range" id="volume-slider" min="0" max="100" value="50" step="1">
                     <span id="volume-value" class="volume-value">50%</span>
@@ -164,6 +94,47 @@
                     <div id="download-status" class="hidden">
                         <span class="spinner"></span> <span id="download-status-text">Downloading...</span>
                     </div>
+
+                    <div class="settings-launch-row">
+                        <button id="dependency-settings-toggle" class="header-chip-btn" type="button"
+                            onclick="App.toggleSettingsPanel('dependency-settings-panel')">Dependency Setup &amp; Troubleshooting</button>
+                    </div>
+
+                    <div id="dependency-settings-panel" class="workflow-settings-panel hidden">
+                        <div class="settings-section">
+                            <label class="settings-label">Runtime Dependencies</label>
+                            <div class="dep-links">
+                                <a href="https://ffmpeg.org/download.html" target="_blank" class="dep-link">
+                                    <span class="dep-icon">🎬</span>
+                                    <span class="dep-name">FFmpeg</span>
+                                    <span class="dep-status" id="dep-ffmpeg-status">checking...</span>
+                                </a>
+                                <a href="https://github.com/yt-dlp/yt-dlp/releases/latest" target="_blank" class="dep-link">
+                                    <span class="dep-icon">📥</span>
+                                    <span class="dep-name">yt-dlp</span>
+                                    <span class="dep-status" id="dep-ytdlp-status">checking...</span>
+                                </a>
+                                <a href="https://deno.com/" target="_blank" class="dep-link">
+                                    <span class="dep-icon">🧩</span>
+                                    <span class="dep-name">Deno (Optional)</span>
+                                    <span class="dep-status" id="dep-deno-status">checking...</span>
+                                </a>
+                            </div>
+                            <button id="auto-install-deps-btn" class="settings-reset hidden" type="button"
+                                onclick="App.installMissingDependencies(true)">Auto Install Missing</button>
+                            <div class="settings-hint">
+                                <p><strong>How Auto Download Works</strong></p>
+                                <p>The app checks dependencies on launch and can auto-download missing tools into your user profile runtime folder (no admin required).</p>
+                                <p><strong>Troubleshooting Ideas</strong></p>
+                                <ol style="margin-left: 1.2rem; margin-top: 0.5rem; text-align: left;">
+                                    <li>If auto-install fails, click <strong>Auto Install Missing</strong> again after confirming internet access.</li>
+                                    <li>If corporate/firewall rules block downloads, manually install FFmpeg and yt-dlp using the links above.</li>
+                                    <li>If security software quarantines binaries, allow the runtime folder and retry.</li>
+                                    <li>After manual installs, restart the app so dependency checks refresh cleanly.</li>
+                                </ol>
+                            </div>
+                        </div>
+                    </div>
                     <div id="step1-error" class="error-msg hidden"></div>
                 </div>
             </section>
@@ -172,6 +143,37 @@
             <section class="step disabled" id="step-2">
                 <h2><span class="step-num">2</span> Options <span class="step-optional">(optional)</span></h2>
                 <div class="step-content">
+                    <div class="settings-launch-row">
+                        <button id="audio-settings-toggle" class="header-chip-btn" type="button"
+                            onclick="App.toggleSettingsPanel('audio-settings-panel')">Audio Processing Settings</button>
+                    </div>
+
+                    <div id="audio-settings-panel" class="workflow-settings-panel hidden">
+                        <div class="settings-section">
+                            <label class="settings-label">
+                                Audio Normalization
+                                <span class="tooltip-icon"
+                                    data-tooltip="Automatically adjusts audio levels to broadcast standard (-16 LUFS). Disable to preserve original audio levels.">?</span>
+                            </label>
+                            <div class="settings-toggle">
+                                <input type="checkbox" id="setting-normalize-audio" checked>
+                                <label for="setting-normalize-audio">Normalize audio levels</label>
+                            </div>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label">
+                                Fade Length
+                                <span class="tooltip-icon"
+                                    data-tooltip="Global default fade duration for clip start/end fades. 0.35s is the middle option.">?</span>
+                            </label>
+                            <select id="setting-audio-fade-duration" class="settings-select">
+                                <option value="0.20">Short (0.20s)</option>
+                                <option value="0.35" selected>Medium (0.35s)</option>
+                                <option value="0.50">Long (0.50s)</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <!-- Separate Audio Source Toggle -->
                     <div class="audio-source-toggle">
                         <label class="toggle-label">
@@ -186,15 +188,35 @@
                             <span class="audio-icon">🎵</span>
                             <span>Audio Source</span>
                         </div>
-                        <div class="input-row">
-                            <input type="text" id="audio-url-input" placeholder="Paste video URL for audio..."
-                                spellcheck="false">
-                            <button id="validate-audio-btn" onclick="App.validateAudioUrl()">Validate</button>
+
+                        <div class="source-toggle" id="audio-source-type-toggle">
+                            <button type="button" class="source-btn active" id="audio-source-url-btn" onclick="App.setAudioSourceType('url')">URL</button>
+                            <button type="button" class="source-btn" id="audio-source-file-btn" onclick="App.setAudioSourceType('file')">Local File</button>
                         </div>
-                        <div id="audio-video-info" class="hidden">
-                            <p class="info-label">Title: <span id="audio-video-title"></span></p>
-                            <p class="info-label">Duration: <span id="audio-video-duration"></span></p>
+
+                        <div id="audio-url-section">
+                            <div class="input-row">
+                                <input type="text" id="audio-url-input" placeholder="Paste video URL for audio..."
+                                    spellcheck="false">
+                                <button id="validate-audio-btn" onclick="App.validateAudioUrl()">Validate</button>
+                                <button id="load-audio-url-btn" class="secondary-btn" onclick="App.loadSeparateAudioUrl()">Load URL</button>
+                            </div>
+                            <div id="audio-video-info" class="hidden">
+                                <p class="info-label">Title: <span id="audio-video-title"></span></p>
+                                <p class="info-label">Duration: <span id="audio-video-duration"></span></p>
+                            </div>
                         </div>
+
+                        <div id="audio-file-section" class="hidden">
+                            <div class="input-row">
+                                <input type="file" id="audio-file-input" accept="audio/*,video/*">
+                                <button id="load-audio-file-btn" class="secondary-btn" onclick="App.loadSeparateAudioFile()">Load File</button>
+                            </div>
+                            <div id="audio-file-info" class="hidden">
+                                <p class="info-label">File: <span id="audio-file-name"></span></p>
+                            </div>
+                        </div>
+
                         <div class="input-row">
                             <label>
                                 Audio Start
@@ -280,6 +302,18 @@
                         <div class="trim-duration-display">
                             <span id="trim-duration">Duration: 0:00</span>
                         </div>
+                        <div class="trim-slider-row">
+                            <label class="trim-label" for="audio-fade-mode">
+                                <span>Audio Fade</span>
+                                <select id="audio-fade-mode" class="trim-select">
+                                    <option value="none" selected>Off</option>
+                                    <option value="start">Start</option>
+                                    <option value="end">End</option>
+                                    <option value="both">Both</option>
+                                </select>
+                            </label>
+                            <p id="audio-fade-note" class="trim-fade-note">Fade length set in Audio Processing Settings (Step 2)</p>
+                        </div>
                     </div>
 
                     <p id="crop-coords" class="info-label">Crop: X=0 Y=0</p>
@@ -290,6 +324,43 @@
             <section class="step disabled" id="step-4">
                 <h2><span class="step-num">4</span> Process &amp; Export</h2>
                 <div class="step-content">
+                    <div class="settings-launch-row">
+                        <button id="output-settings-toggle" class="header-chip-btn" type="button"
+                            onclick="App.toggleSettingsPanel('output-settings-panel')">Output Settings</button>
+                        <button class="header-chip-btn" type="button"
+                            onclick="App.toggleSettingsPanel('app-controls-panel')">App Controls</button>
+                    </div>
+
+                    <div id="output-settings-panel" class="workflow-settings-panel hidden">
+                        <div class="settings-section">
+                            <label class="settings-label">Output Resolution</label>
+                            <select id="setting-resolution" class="settings-select">
+                                <option value="480">480p (480×480)</option>
+                                <option value="720" selected>720p (720×720)</option>
+                                <option value="1080">1080p (1080×1080)</option>
+                            </select>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label">
+                                End Buffer
+                                <span class="tooltip-icon"
+                                    data-tooltip="Adds a freeze-frame at the end of the clip. Useful for stream alerts that need time to fade out.">?</span>
+                            </label>
+                            <select id="setting-buffer" class="settings-select">
+                                <option value="0">None</option>
+                                <option value="1">1 second</option>
+                                <option value="2" selected>2 seconds</option>
+                                <option value="3">3 seconds</option>
+                                <option value="5">5 seconds</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="app-controls-panel" class="workflow-settings-panel hidden">
+                        <button id="reset-settings-btn" class="settings-reset" type="button" onclick="App.resetSettings()">Reset to Defaults</button>
+                        <button class="settings-quit" type="button" onclick="App.shutdownApp()">Quit App</button>
+                    </div>
+
                     <button id="process-btn" onclick="App.processVideo()">Process Video</button>
                     <div id="progress-section" class="hidden">
                         <div class="progress-bar-bg">
@@ -298,13 +369,21 @@
                         <p id="progress-text" class="info-label">Starting...</p>
                     </div>
                     <div id="download-section" class="hidden">
-                        <button id="export-btn" class="export-btn" onclick="App.downloadResult()">Download Alert</button>
+                        <button id="export-btn" class="export-btn" onclick="App.downloadResult()" disabled>Download Alert</button>
                     </div>
                     <div id="step4-error" class="error-msg hidden"></div>
                 </div>
             </section>
         </div>
     </main>
+
+    <footer class="app-footer">
+        <p>
+            Made with &lt;3 for streamers by
+            <a href="https://twitch.tv/thedeutschmark" target="_blank" rel="noopener noreferrer">thedeutschmark</a>
+        </p>
+        <p>&copy; 2026 thedeutschmark. Released under the MIT License.</p>
+    </footer>
 
     <script src="/static/js/crop.js"></script>
     <script src="/static/js/app.js"></script>

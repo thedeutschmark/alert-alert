@@ -8,19 +8,19 @@
 }
 
 :root {
-    --bg-base: #0f0f0f;
-    --bg-card: #181818;
-    --bg-header: #1a1a1a;
-    --border: #2a2a2a;
-    --border-focus: #5a9fff;
-    --text: #e1e1e1;
-    --text-muted: #888;
-    --accent: #5a9fff;
-    --accent-hover: #4a8fee;
-    --accent-green: #34d399;
-    --accent-green-hover: #2bc48a;
-    --error: #ef6461;
-    --error-bg: #1f1010;
+    --bg-base: #0f151d;
+    --bg-card: #171f29;
+    --bg-header: #131b24;
+    --border: #2b3645;
+    --border-focus: #8b9cb1;
+    --text: #d7e0eb;
+    --text-muted: #96a4b5;
+    --accent: #8498b0;
+    --accent-hover: #93a6bc;
+    --accent-green: #7f9f93;
+    --accent-green-hover: #8fb0a4;
+    --error: #d09a9d;
+    --error-bg: #2a2025;
 }
 
 body {
@@ -28,6 +28,8 @@ body {
     background: var(--bg-base);
     color: var(--text);
     min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .hidden {
@@ -55,51 +57,34 @@ header h1 {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
-/* ── Settings Dropdown ───────────────────────────────────────── */
-.settings-dropdown {
-    position: relative;
-}
-
-.settings-btn {
-    background: transparent;
+button.header-chip-btn {
+    background: rgba(132, 152, 176, 0.1);
     border: 1px solid var(--border);
-    padding: 8px;
-    border-radius: 6px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     color: var(--text-muted);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.2px;
     transition: all 0.2s;
 }
 
-.settings-btn:hover {
-    background: var(--bg-card);
+button.header-chip-btn:hover:not(:disabled) {
+    background: rgba(132, 152, 176, 0.2);
     color: var(--text);
-    border-color: var(--text-muted);
+    border-color: var(--accent);
     transform: none;
 }
 
-.settings-btn.active {
-    background: var(--bg-card);
-    color: var(--accent);
+button.header-chip-btn.active {
+    background: rgba(132, 152, 176, 0.22);
     border-color: var(--accent);
-}
-
-.settings-menu {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    min-width: 220px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-    z-index: 100;
-    animation: fadeSlideIn 0.2s ease;
+    color: var(--text);
 }
 
 .settings-section {
@@ -281,12 +266,12 @@ header h1 {
 
 .banner-error {
     background: var(--error-bg);
-    border-bottom: 1px solid #3a1515;
+    border-bottom: 1px solid #4c393f;
     color: var(--error);
 }
 
 .banner code {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(131, 148, 168, 0.2);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 13px;
@@ -297,8 +282,31 @@ main {
     max-width: 100%;
     margin: 0 auto;
     padding: 24px;
-    height: calc(100vh - 60px);
+    height: calc(100vh - 108px);
     overflow: hidden;
+    width: 100%;
+}
+
+.app-footer {
+    border-top: 1px solid var(--border);
+    background: var(--bg-header);
+    color: var(--text-muted);
+    padding: 10px 24px 12px;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.app-footer a {
+    color: var(--accent-hover);
+    text-decoration: none;
+}
+
+.app-footer a:hover {
+    color: var(--text);
+    text-decoration: underline;
 }
 
 .main-layout {
@@ -346,7 +354,7 @@ main {
     justify-content: center;
     border-radius: 6px;
     overflow: hidden;
-    background: #000;
+    background: #0b1118;
     min-height: 200px;
     max-height: calc(100vh - 250px); /* Limit container height */
 }
@@ -404,6 +412,12 @@ main {
         overflow: visible;
     }
 
+    .app-footer {
+        padding: 12px 16px;
+        flex-direction: column;
+        gap: 6px;
+    }
+
     .main-layout {
         flex-direction: column;
         height: auto;
@@ -446,7 +460,7 @@ main {
     font-size: 13px;
     font-weight: 600;
     padding: 10px 16px;
-    background: #1e1e1e;
+    background: #1a2430;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
@@ -463,7 +477,7 @@ main {
     width: 22px;
     height: 22px;
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-base);
     border-radius: 50%;
     font-size: 11px;
     font-weight: 700;
@@ -509,7 +523,7 @@ main {
 
 .source-btn.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-base);
 }
 
 /* ── File Upload ──────────────────────────────────────────────── */
@@ -525,7 +539,7 @@ main {
 .file-upload-area:hover,
 .file-upload-area.drag-over {
     border-color: var(--accent);
-    background: rgba(59, 130, 246, 0.05);
+    background: rgba(132, 152, 176, 0.14);
 }
 
 .file-upload-content {
@@ -607,7 +621,7 @@ label {
 /* ── Buttons ──────────────────────────────────────────────────── */
 button {
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-base);
     border: none;
     padding: 8px 18px;
     border-radius: 6px;
@@ -629,6 +643,18 @@ button:active:not(:disabled) {
 button:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.secondary-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+.secondary-btn:hover:not(:disabled) {
+    background: var(--bg-card);
+    border-color: var(--accent);
+    color: var(--accent);
 }
 
 .export-btn {
@@ -706,6 +732,28 @@ button:disabled {
     flex: 1;
 }
 
+.trim-label .trim-select {
+    flex: 1;
+    max-width: 220px;
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    outline: none;
+}
+
+.trim-label .trim-select:focus {
+    border-color: var(--accent);
+}
+
+.trim-fade-note {
+    margin: 4px 0 0 82px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
 .trim-val {
     min-width: 50px;
     text-align: right;
@@ -778,6 +826,7 @@ button:disabled {
 #crop-overlay {
     position: absolute;
     border: 2px solid var(--accent);
+    box-sizing: border-box;
     box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.6);
     cursor: move;
     z-index: 10;
@@ -786,7 +835,7 @@ button:disabled {
 }
 
 #crop-overlay.dragging {
-    border-color: #fff;
+    border-color: var(--text);
 }
 
 .crop-controls {
@@ -854,7 +903,7 @@ button:disabled {
 .ratio-btn.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: #000;
+    color: var(--bg-base);
 }
 
 input[type="range"] {
@@ -923,8 +972,8 @@ input[type="range"] {
 .audio-source-section {
     margin-top: 16px;
     padding: 16px;
-    background: rgba(90, 159, 255, 0.05);
-    border: 1px solid rgba(90, 159, 255, 0.2);
+    background: rgba(132, 152, 176, 0.12);
+    border: 1px solid rgba(132, 152, 176, 0.34);
     border-radius: 8px;
     animation: fadeSlideIn 0.3s ease;
 }
@@ -996,7 +1045,7 @@ input[type="range"] {
 
 .dep-link:hover {
     border-color: var(--accent);
-    background: #1f1f1f;
+    background: #1b2631;
 }
 
 .dep-icon {
@@ -1016,12 +1065,12 @@ input[type="range"] {
 }
 
 .dep-status.installed {
-    background: rgba(52, 211, 153, 0.2);
+    background: rgba(127, 159, 147, 0.2);
     color: var(--accent-green);
 }
 
 .dep-status.missing {
-    background: rgba(239, 100, 97, 0.2);
+    background: rgba(208, 154, 157, 0.2);
     color: var(--error);
 }
 
@@ -1031,12 +1080,20 @@ input[type="range"] {
     margin-top: 8px;
 }
 
+.settings-hint p + p {
+    margin-top: 8px;
+}
+
+#auto-install-deps-btn {
+    margin-top: 0.75rem;
+}
+
 /* ── Dependency Banner Instructions ───────────────────────────── */
 .dep-instructions {
     font-size: 13px;
     margin-top: 8px;
     padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(10, 16, 24, 0.45);
     border-radius: 4px;
     font-family: monospace;
 }
@@ -1066,10 +1123,48 @@ input[type="file"] {
 
 input[type="file"]::file-selector-button {
     background: var(--accent);
-    color: #fff;
+    color: var(--bg-base);
     border: none;
     padding: 6px 12px;
     border-radius: 4px;
     cursor: pointer;
     margin-right: 12px;
+}
+
+.settings-quit {
+    width: 100%;
+    padding: 0.75rem;
+    margin-top: 0.5rem;
+    background: #a77479;
+    color: #f2f5f8;
+    border: 1px solid #b2878c;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.settings-quit:hover {
+    background: #b18488;
+    border-color: #be979a;
+}
+
+.settings-launch-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    margin-bottom: 10px;
+}
+
+.workflow-settings-panel {
+    border: 1px solid var(--border);
+    background: rgba(132, 152, 176, 0.08);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+#app-controls-panel {
+    display: grid;
+    gap: 8px;
 }

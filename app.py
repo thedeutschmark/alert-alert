@@ -2,11 +2,15 @@ import os
 import json
 import uuid
 import glob
+import mimetypes
 import platform
 import subprocess
 import threading
+import shutil
+import zipfile
 from functools import lru_cache
 from pathlib import Path
+from urllib.request import Request, urlopen
 from flask import Flask, request, jsonify, send_file, send_from_directory
 
 import sys
@@ -31,12 +35,22 @@ TEMP_DIR = BASE_DIR / "temp"
 DOWNLOADS_DIR = TEMP_DIR / "downloads"
 PROCESSING_DIR = TEMP_DIR / "processing"
 OUTPUT_DIR = BASE_DIR / "output"
+if platform.system() == "Windows":
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    runtime_root_base = Path(local_app_data) if local_app_data else BASE_DIR
+    RUNTIME_DIR = runtime_root_base / "AlertAlert" / "runtime"
+else:
+    RUNTIME_DIR = BASE_DIR / ".runtime"
+RUNTIME_BIN_DIR = RUNTIME_DIR / "bin"
 
 # Ensure directories exist
-for d in [DOWNLOADS_DIR, PROCESSING_DIR, OUTPUT_DIR]:
+for d in [DOWNLOADS_DIR, PROCESSING_DIR, OUTPUT_DIR, RUNTIME_BIN_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 NULL_DEVICE = "NUL" if platform.system() == "Windows" else "/dev/null"
+AUTO_INSTALL_SUPPORTED = platform.system() == "Windows"
+FFMPEG_WINDOWS_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+YTDLP_WINDOWS_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 
 # In-memory job status tracking
 jobs = {}
@@ -45,10 +59,24 @@ jobs = {}
 # ── Tool discovery ──────────────────────────────────────────────
 # Find ffmpeg, ffprobe, yt-dlp even if not on current PATH
 
+def _is_explicit_tool_path(path, tool_name):
+    p = Path(str(path))
+    if p.exists():
+        return True
+    normalized = p.name.lower()
+    bare = {tool_name.lower()}
+    if platform.system() == "Windows":
+        bare.add(f"{tool_name.lower()}.exe")
+    return normalized not in bare
+
+
 def find_tool(name):
     """Find a CLI tool, checking PATH first then common Windows install locations."""
+    runtime_candidate = RUNTIME_BIN_DIR / (f"{name}.exe" if platform.system() == "Windows" else name)
+    if runtime_candidate.exists():
+        return str(runtime_candidate)
+
     # Try PATH first
-    import shutil
     path = shutil.which(name)
     if path:
         return path
@@ -81,13 +109,25 @@ def find_tool(name):
     return name  # Fallback: let subprocess try the bare name
 
 
-FFMPEG = find_tool("ffmpeg")
-FFPROBE = find_tool("ffprobe")
-YTDLP = find_tool("yt-dlp")
-DENO = find_tool("deno")
+FFMPEG = "ffmpeg"
+FFPROBE = "ffprobe"
+YTDLP = "yt-dlp"
+DENO = "deno"
 
 # Directory containing ffmpeg, needed by yt-dlp's --ffmpeg-location
-FFMPEG_DIR = str(Path(FFMPEG).parent) if FFMPEG != "ffmpeg" else None
+FFMPEG_DIR = None
+
+
+def refresh_tool_paths():
+    """Refresh global tool paths from runtime dir + PATH."""
+    global FFMPEG, FFPROBE, YTDLP, DENO, FFMPEG_DIR
+    FFMPEG = find_tool("ffmpeg")
+    FFPROBE = find_tool("ffprobe")
+    YTDLP = find_tool("yt-dlp")
+    DENO = find_tool("deno")
+    FFMPEG_DIR = str(Path(FFMPEG).parent) if _is_explicit_tool_path(FFMPEG, "ffmpeg") else None
+    get_env.cache_clear()
+
 
 # Build an env dict that includes ffmpeg and deno dirs on PATH
 @lru_cache(maxsize=1)
@@ -95,9 +135,11 @@ def get_env():
     """Return an env dict with ffmpeg and deno directories added to PATH."""
     env = os.environ.copy()
     extra_dirs = []
+    if RUNTIME_BIN_DIR.exists():
+        extra_dirs.append(str(RUNTIME_BIN_DIR))
     if FFMPEG_DIR:
         extra_dirs.append(FFMPEG_DIR)
-    deno_dir = str(Path(DENO).parent) if DENO != "deno" else None
+    deno_dir = str(Path(DENO).parent) if _is_explicit_tool_path(DENO, "deno") else None
     if deno_dir:
         extra_dirs.append(deno_dir)
     if extra_dirs:
@@ -111,6 +153,8 @@ def is_safe_job_id(job_id):
         return False
     # Only allow alphanumeric, underscore, and hyphen characters
     return bool(re.match(r'^[a-zA-Z0-9_\-]+$', job_id))
+
+refresh_tool_paths()
 
 
 def run_subprocess(cmd, timeout=30, text=True):
@@ -138,53 +182,180 @@ def run_subprocess(cmd, timeout=30, text=True):
 def index():
     return send_from_directory("static", "index.html")
 
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico")
+
 
 # ── Dependency check ────────────────────────────────────────────
 
 
 # Global cache for dependency results
 DEPS_CACHE = {}
+DEPS_BOOTSTRAP_STATE = {
+    "status": "idle",  # idle | installing | ready | failed
+    "message": "",
+    "last_error": None,
+}
+DEPS_BOOTSTRAP_LOCK = threading.Lock()
+
+
+def _set_bootstrap_state(status, message="", error=None):
+    DEPS_BOOTSTRAP_STATE["status"] = status
+    DEPS_BOOTSTRAP_STATE["message"] = message
+    DEPS_BOOTSTRAP_STATE["last_error"] = error
+
+
+def _required_missing(results):
+    required = ("ffmpeg", "ffprobe", "yt-dlp")
+    return [name for name in required if not results.get(name, {}).get("installed")]
+
+
+def _build_deps_payload(results):
+    payload = dict(results)
+    payload["required_missing"] = _required_missing(results)
+    payload["auto_install_available"] = AUTO_INSTALL_SUPPORTED
+    payload["bootstrap"] = dict(DEPS_BOOTSTRAP_STATE)
+    return payload
+
+
+def _download_file(url, dest_path, timeout=180):
+    req = Request(url, headers={"User-Agent": "AlertAlert/1.0"})
+    with urlopen(req, timeout=timeout) as response, open(dest_path, "wb") as out_file:
+        shutil.copyfileobj(response, out_file)
+
+
+def _install_ffmpeg_windows():
+    """Download and extract ffmpeg/ffprobe into runtime bin."""
+    archive_path = RUNTIME_DIR / "ffmpeg-release-essentials.zip"
+    _download_file(FFMPEG_WINDOWS_URL, archive_path)
+
+    ffmpeg_member = None
+    ffprobe_member = None
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        for member in zf.namelist():
+            lower = member.lower()
+            if lower.endswith("/bin/ffmpeg.exe"):
+                ffmpeg_member = member
+            elif lower.endswith("/bin/ffprobe.exe"):
+                ffprobe_member = member
+
+        if not ffmpeg_member or not ffprobe_member:
+            raise RuntimeError("Downloaded FFmpeg archive is missing ffmpeg.exe or ffprobe.exe.")
+
+        with zf.open(ffmpeg_member) as src, open(RUNTIME_BIN_DIR / "ffmpeg.exe", "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        with zf.open(ffprobe_member) as src, open(RUNTIME_BIN_DIR / "ffprobe.exe", "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+    archive_path.unlink(missing_ok=True)
+
+
+def _install_ytdlp_windows():
+    """Download yt-dlp.exe into runtime bin."""
+    dest = RUNTIME_BIN_DIR / "yt-dlp.exe"
+    _download_file(YTDLP_WINDOWS_URL, dest)
+
+
+def ensure_runtime_dependencies(auto_install=False):
+    """Check dependencies and optionally auto-install missing required tools."""
+    refresh_tool_paths()
+    results = run_deps_check(force=True)
+    missing = _required_missing(results)
+
+    if not missing:
+        _set_bootstrap_state("ready", "All required dependencies are installed.")
+        return results
+
+    if not auto_install or not AUTO_INSTALL_SUPPORTED:
+        return results
+
+    with DEPS_BOOTSTRAP_LOCK:
+        # Re-check inside lock to avoid duplicate installers.
+        refresh_tool_paths()
+        results = run_deps_check(force=True)
+        missing = _required_missing(results)
+        if not missing:
+            _set_bootstrap_state("ready", "All required dependencies are installed.")
+            return results
+
+        try:
+            _set_bootstrap_state("installing", "Installing required dependencies...")
+            print("Auto-install: missing dependencies detected:", ", ".join(missing))
+            if "ffmpeg" in missing or "ffprobe" in missing:
+                print("Auto-install: downloading FFmpeg runtime...")
+                _install_ffmpeg_windows()
+            if "yt-dlp" in missing:
+                print("Auto-install: downloading yt-dlp runtime...")
+                _install_ytdlp_windows()
+
+            refresh_tool_paths()
+            results = run_deps_check(force=True)
+            missing_after = _required_missing(results)
+            if missing_after:
+                msg = f"Still missing: {', '.join(missing_after)}"
+                _set_bootstrap_state("failed", msg, msg)
+            else:
+                _set_bootstrap_state("ready", "Dependencies installed successfully.")
+            return results
+        except Exception as e:
+            err = str(e)
+            print(f"Auto-install failed: {err}")
+            _set_bootstrap_state("failed", "Dependency auto-install failed.", err)
+            return results
 
 @app.route("/api/check-deps")
 def check_deps():
-    # If the cache is already populated (should be from startup), return it
+    # If the cache is already populated (should be from startup), return it.
     if DEPS_CACHE:
-        return jsonify(DEPS_CACHE)
-        
-    # Fallback if not populated
-    return jsonify(run_deps_check())
+        return jsonify(_build_deps_payload(DEPS_CACHE))
+    return jsonify(_build_deps_payload(run_deps_check()))
 
-def run_deps_check():
+
+@app.route("/api/bootstrap-deps", methods=["POST"])
+def bootstrap_deps():
+    results = ensure_runtime_dependencies(auto_install=True)
+    return jsonify(_build_deps_payload(results))
+
+
+def run_deps_check(force=False):
     """Run dependency checks and return the results dict."""
+    if DEPS_CACHE and not force:
+        return dict(DEPS_CACHE)
+
     print("Checking system dependencies...")
+    refresh_tool_paths()
     results = {}
     tools = [
         ("ffmpeg", FFMPEG, ["-version"]),
         ("ffprobe", FFPROBE, ["-version"]),
         ("yt-dlp", YTDLP, ["--version"]),
+        ("deno", DENO, ["--version"]),
     ]
     for name, path, args in tools:
         try:
             r = run_subprocess([path] + args, timeout=10)
             output = (r.stdout + r.stderr).strip()
-            has_output = bool(output)
+            has_output = (r.returncode == 0) and bool(output)
             first_line = output.split("\n")[0].strip() if has_output else None
             results[name] = {
                 "installed": has_output,
                 "version": first_line,
+                "path": path if has_output else None,
             }
             if has_output:
                 print(f"  [OK] {name} found: {first_line}")
             else:
                 print(f"  [MISSING] {name} not found.")
         except FileNotFoundError:
-            results[name] = {"installed": False, "version": None}
+            results[name] = {"installed": False, "version": None, "path": None}
             print(f"  [MISSING] {name} not found (FileNotFound).")
         except subprocess.TimeoutExpired:
-            results[name] = {"installed": False, "version": None}
+            results[name] = {"installed": False, "version": None, "path": None}
             print(f"  [TIMEOUT] {name} timed out.")
     
     # Update global cache
+    DEPS_CACHE.clear()
     DEPS_CACHE.update(results)
     print("Dependency check complete.")
     return results
@@ -243,13 +414,63 @@ def _get_video_info(url):
     Fetch video info from yt-dlp.
     Raises exception on failure so lru_cache only caches success.
     """
-    r = run_subprocess([YTDLP, "--dump-json", "--no-download", url], timeout=30)
+    youtube = is_youtube_url(url)
+    probes = []
 
-    if r.returncode != 0:
-        # Raise exception with the error message
-        raise RuntimeError(r.stderr.strip() or "Invalid URL")
+    if youtube:
+        probes = [
+            [
+                YTDLP, "--dump-single-json", "--no-download", "--no-playlist",
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=web",
+                url,
+            ],
+            [
+                YTDLP, "--dump-single-json", "--no-download", "--no-playlist",
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=android",
+                url,
+            ],
+            [
+                YTDLP, "--dump-single-json", "--no-download", "--no-playlist",
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=mweb",
+                url,
+            ],
+            [
+                YTDLP, "--dump-single-json", "--no-download", "--no-playlist",
+                "--force-ipv4",
+                "--extractor-args", "youtube:player_client=tv_embedded,web",
+                url,
+            ],
+        ]
+        if has_deno_runtime():
+            probes.insert(
+                0,
+                [
+                    YTDLP, "--dump-single-json", "--no-download", "--no-playlist",
+                    "--force-ipv4",
+                    "--remote-components", "ejs:github",
+                    "--extractor-args", "youtube:player_client=web",
+                    url,
+                ],
+            )
+    else:
+        probes = [[YTDLP, "--dump-single-json", "--no-download", "--no-playlist", url]]
 
-    return json.loads(r.stdout)
+    last_err = "Invalid URL"
+    for probe_cmd in probes:
+        r = run_subprocess(probe_cmd, timeout=30)
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        last_err = summarize_ytdlp_error(r.stderr)
+
+    if looks_like_age_restricted_issue(last_err):
+        last_err = (
+            f"{last_err}. Age-restricted videos require a logged-in, age-verified "
+            "YouTube account in Chrome/Edge."
+        )
+    raise RuntimeError(last_err)
 
 
 @app.route("/api/validate-url", methods=["POST"])
@@ -301,6 +522,64 @@ def parse_timestamp_to_seconds(ts):
         return parts[0]
 
 
+def is_youtube_url(url):
+    try:
+        from urllib.parse import urlparse
+        netloc = urlparse(url).netloc.lower()
+        return ("youtube.com" in netloc) or ("youtu.be" in netloc)
+    except Exception:
+        return False
+
+
+def summarize_ytdlp_error(stderr_text):
+    """Return a concise yt-dlp error message from stderr."""
+    if not stderr_text:
+        return "Download failed"
+
+    lines = [ln.strip() for ln in stderr_text.splitlines() if ln.strip()]
+    error_lines = [ln for ln in lines if ln.startswith("ERROR:")]
+    if error_lines:
+        return error_lines[-1]
+
+    warn_lines = [ln for ln in lines if ln.startswith("WARNING:")]
+    if warn_lines:
+        return warn_lines[-1]
+
+    return lines[-1] if lines else "Download failed"
+
+
+def looks_like_youtube_challenge_issue(stderr_text):
+    s = (stderr_text or "").lower()
+    markers = [
+        "sabr",
+        "forbidden",
+        "http error 403",
+        "signature solving failed",
+        "n challenge solving failed",
+        "requested format is not available",
+        "only images are available for download",
+        "po token",
+        "remote components challenge solver",
+    ]
+    return any(m in s for m in markers)
+
+
+def looks_like_age_restricted_issue(stderr_text):
+    s = (stderr_text or "").lower()
+    markers = [
+        "age-restricted",
+        "sign in to confirm your age",
+        "confirm your age",
+        "this video may be inappropriate",
+        "this content may be inappropriate",
+    ]
+    return any(m in s for m in markers)
+
+
+def has_deno_runtime():
+    return DENO != "deno"
+
+
 def run_download_pipeline(job_id, url, start_sec, end_sec, use_separate_audio=False,
                          audio_url="", audio_start_sec=0, audio_end_sec=0):
     """Run the download pipeline in a background thread."""
@@ -309,24 +588,155 @@ def run_download_pipeline(job_id, url, start_sec, end_sec, use_separate_audio=Fa
         job_dir.mkdir(parents=True, exist_ok=True)
 
         output_template = str(job_dir / "clip.%(ext)s")
-        section = f"*{start_sec}-{end_sec}"
+        youtube = is_youtube_url(url)
 
-        # Build yt-dlp command with --ffmpeg-location so it can find ffmpeg
-        ytdlp_cmd = [
-            YTDLP,
-            "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "--download-sections", section,
-            "--merge-output-format", "mp4",
-            "-o", output_template,
-        ]
-        if FFMPEG_DIR:
-            ytdlp_cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
-        ytdlp_cmd.append(url)
+        def build_profiles():
+            if not youtube:
+                return [
+                    {"name": "standard", "format": "bv*+ba/b", "sort": "res", "extra": []},
+                    {"name": "compatibility", "format": "b/bv*+ba", "sort": None, "extra": []},
+                ]
 
-        r = run_subprocess(ytdlp_cmd, timeout=300)
-        
-        if r.returncode != 0:
-            jobs[job_id] = {"status": "error", "error": r.stderr.strip() or "Download failed"}
+            progressive_format = "b[ext=mp4]/b[ext=webm]/b"
+            merged_format = "bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
+            profiles = [
+                {
+                    "name": "web progressive",
+                    "format": progressive_format,
+                    "sort": "res,ext:mp4:m4a",
+                    "extra": ["--extractor-args", "youtube:player_client=web"],
+                },
+                {
+                    "name": "android progressive",
+                    "format": progressive_format,
+                    "sort": "res,ext:mp4:m4a",
+                    "extra": ["--extractor-args", "youtube:player_client=android"],
+                },
+                {
+                    "name": "mweb progressive",
+                    "format": progressive_format,
+                    "sort": "res,ext:mp4:m4a",
+                    "extra": ["--extractor-args", "youtube:player_client=mweb"],
+                },
+                {
+                    "name": "tv embedded progressive",
+                    "format": progressive_format,
+                    "sort": "res,ext:mp4:m4a",
+                    "extra": ["--extractor-args", "youtube:player_client=tv_embedded,web"],
+                },
+                {
+                    "name": "web adaptive merge",
+                    "format": merged_format,
+                    "sort": "res,ext:mp4:m4a",
+                    "extra": ["--extractor-args", "youtube:player_client=web"],
+                },
+            ]
+
+            if has_deno_runtime():
+                profiles.append(
+                    {
+                        "name": "web progressive + challenge solver",
+                        "format": progressive_format,
+                        "sort": "res,ext:mp4:m4a",
+                        "extra": [
+                            "--remote-components", "ejs:github",
+                            "--extractor-args", "youtube:player_client=web",
+                        ],
+                    }
+                )
+
+            for browser in ["chrome", "edge", "firefox"]:
+                profiles.append(
+                    {
+                        "name": f"{browser} cookies progressive",
+                        "format": progressive_format,
+                        "sort": "res,ext:mp4:m4a",
+                        "extra": [
+                            "--cookies-from-browser", browser,
+                            "--extractor-args", "youtube:player_client=web",
+                        ],
+                    }
+                )
+
+            profiles.append(
+                {"name": "compatibility adaptive", "format": merged_format, "sort": None, "extra": []}
+            )
+            return profiles
+
+        def build_video_download_cmd(profile, use_sections):
+            cmd = [
+                YTDLP,
+                "--no-playlist",
+                "--force-ipv4",
+                "-f", profile["format"],
+                "--retries", "5",
+                "--fragment-retries", "5",
+                "-o", output_template,
+            ]
+            if profile.get("sort"):
+                cmd.extend(["-S", profile["sort"]])
+            cmd.extend(profile.get("extra", []))
+            if use_sections:
+                cmd.extend(["--download-sections", f"*{start_sec}-{end_sec}"])
+            if FFMPEG_DIR:
+                cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
+            cmd.append(url)
+            return cmd
+
+        # For full downloads (start at 0), avoid section-based ffmpeg URL reads.
+        section_modes = [True, False] if start_sec > 0 else [False]
+        profiles = build_profiles()
+        total_attempts = len(section_modes) * len(profiles)
+        attempt_idx = 0
+
+        last_error = "Download failed"
+        last_stderr = ""
+        success = False
+
+        for use_sections in section_modes:
+            for profile in profiles:
+                attempt_idx += 1
+                if attempt_idx > 1:
+                    for old_clip in job_dir.glob("clip.*"):
+                        old_clip.unlink(missing_ok=True)
+
+                mode_label = "sectioned" if use_sections else "full"
+                jobs[job_id] = {
+                    "status": "downloading",
+                    "progress": min(5 + int((attempt_idx - 1) * 40 / max(1, total_attempts - 1)), 50),
+                    "stage": f"Downloading video ({attempt_idx}/{total_attempts}) [{mode_label}, {profile['name']}]...",
+                }
+
+                r = run_subprocess(build_video_download_cmd(profile, use_sections), timeout=360)
+                if r.returncode == 0:
+                    success = True
+                    break
+
+                last_stderr = r.stderr or ""
+                last_error = summarize_ytdlp_error(last_stderr)
+
+            if success:
+                break
+
+        if not success:
+            if youtube:
+                if looks_like_age_restricted_issue(last_stderr):
+                    hint = (
+                        "Age-restricted videos require a logged-in, age-verified YouTube account. "
+                        "Sign in to YouTube in Chrome or Edge with that account, then retry."
+                    )
+                    last_error = f"{last_error}. {hint}"
+                elif looks_like_youtube_challenge_issue(last_stderr):
+                    hint = (
+                        "YouTube challenge/protection blocked usable formats. "
+                        "Update yt-dlp (`pip install -U yt-dlp`). "
+                    )
+                    if not has_deno_runtime():
+                        hint += "Install Deno (`winget install DenoLand.Deno`) for challenge solving. "
+                    hint += "If this video is restricted, sign in to YouTube in Chrome/Edge and retry."
+                    last_error = f"{last_error}. {hint}"
+
+            jobs[job_id] = {"status": "error", "error": last_error}
             return
 
         # Find the downloaded file
@@ -340,37 +750,21 @@ def run_download_pipeline(job_id, url, start_sec, end_sec, use_separate_audio=Fa
         # If using separate audio, download audio-only from second URL
         if use_separate_audio:
             jobs[job_id] = {"status": "downloading", "progress": 50, "stage": "Downloading audio clip..."}
-            audio_output = str(job_dir / "audio.%(ext)s")
-            audio_section = f"*{audio_start_sec}-{audio_end_sec}"
-            
-            audio_cmd = [
-                YTDLP,
-                "-f", "bestaudio[ext=m4a]/bestaudio",
-                "--download-sections", audio_section,
-                "-x",  # Extract audio
-                "--audio-format", "wav",  # Use WAV to avoid lossy re-encoding
-                "-o", audio_output,
-            ]
-            if FFMPEG_DIR:
-                audio_cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
-            audio_cmd.append(audio_url)
-            
-            r = run_subprocess(audio_cmd, timeout=300)
-            
-            if r.returncode != 0:
-                jobs[job_id] = {"status": "error", "error": f"Audio download failed: {r.stderr.strip()}"}
+            try:
+                separate_audio_file = download_separate_audio(
+                    job_dir,
+                    audio_url,
+                    audio_start_sec,
+                    audio_end_sec,
+                )
+            except Exception as e:
+                jobs[job_id] = {"status": "error", "error": f"Audio download failed: {str(e)}"}
                 return
-            
-            # Find the audio file
-            audio_files = list(job_dir.glob("audio.*"))
-            if not audio_files:
-                jobs[job_id] = {"status": "error", "error": "No audio file downloaded"}
-                return
-            
+
             jobs[job_id] = {
                 "status": "downloaded", 
                 "filename": filename,
-                "audio_filename": audio_files[0].name,
+                "audio_filename": Path(separate_audio_file).name,
                 "use_separate_audio": True
             }
             return
@@ -382,6 +776,146 @@ def run_download_pipeline(job_id, url, start_sec, end_sec, use_separate_audio=Fa
         jobs[job_id] = {"status": "error", "error": "Download timed out"}
     except Exception as e:
         jobs[job_id] = {"status": "error", "error": str(e)}
+
+
+def download_separate_audio(job_dir, audio_url, audio_start_sec=None, audio_end_sec=None):
+    """Download separate audio to job_dir as audio.* and return its path."""
+    audio_output = str(job_dir / "audio.%(ext)s")
+    youtube = is_youtube_url(audio_url)
+    section_requested = (
+        audio_start_sec is not None
+        and audio_end_sec is not None
+        and audio_end_sec > audio_start_sec
+    )
+
+    def build_profiles():
+        if not youtube:
+            return [
+                {"name": "standard", "format": "bestaudio/b", "sort": "abr", "extra": []},
+                {"name": "compatibility", "format": "b/bestaudio", "sort": None, "extra": []},
+            ]
+
+        progressive_audio = "ba[ext=m4a]/bestaudio/b"
+        profiles = [
+            {
+                "name": "web client",
+                "format": progressive_audio,
+                "sort": "ext:m4a,abr",
+                "extra": ["--extractor-args", "youtube:player_client=web"],
+            },
+            {
+                "name": "android client",
+                "format": progressive_audio,
+                "sort": "ext:m4a,abr",
+                "extra": ["--extractor-args", "youtube:player_client=android"],
+            },
+            {
+                "name": "mweb client",
+                "format": progressive_audio,
+                "sort": "ext:m4a,abr",
+                "extra": ["--extractor-args", "youtube:player_client=mweb"],
+            },
+            {
+                "name": "tv embedded client",
+                "format": progressive_audio,
+                "sort": "ext:m4a,abr",
+                "extra": ["--extractor-args", "youtube:player_client=tv_embedded,web"],
+            },
+        ]
+
+        if has_deno_runtime():
+            profiles.append(
+                {
+                    "name": "web + challenge solver",
+                    "format": progressive_audio,
+                    "sort": "ext:m4a,abr",
+                    "extra": [
+                        "--remote-components", "ejs:github",
+                        "--extractor-args", "youtube:player_client=web",
+                    ],
+                }
+            )
+
+        for browser in ["chrome", "edge", "firefox"]:
+            profiles.append(
+                {
+                    "name": f"{browser} cookies",
+                    "format": progressive_audio,
+                    "sort": "ext:m4a,abr",
+                    "extra": [
+                        "--cookies-from-browser", browser,
+                        "--extractor-args", "youtube:player_client=web",
+                    ],
+                }
+            )
+
+        profiles.append(
+            {"name": "compatibility format", "format": "b/bestaudio", "sort": None, "extra": []}
+        )
+        return profiles
+
+    def build_audio_cmd(profile, use_sections):
+        cmd = [
+            YTDLP,
+            "--no-playlist",
+            "--force-ipv4",
+            "-f", profile["format"],
+            "-x",
+            "--audio-format", "wav",
+            "--retries", "5",
+            "--fragment-retries", "5",
+            "-o", audio_output,
+        ]
+        if profile.get("sort"):
+            cmd.extend(["-S", profile["sort"]])
+        cmd.extend(profile.get("extra", []))
+        if use_sections and section_requested:
+            cmd.extend(["--download-sections", f"*{audio_start_sec}-{audio_end_sec}"])
+        if FFMPEG_DIR:
+            cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
+        cmd.append(audio_url)
+        return cmd
+
+    section_modes = [True, False] if section_requested else [False]
+    profiles = build_profiles()
+    last_error = "Audio download failed"
+    last_stderr = ""
+    success = False
+
+    for use_sections in section_modes:
+        for profile in profiles:
+            for old_audio in job_dir.glob("audio.*"):
+                old_audio.unlink(missing_ok=True)
+
+            r = run_subprocess(build_audio_cmd(profile, use_sections), timeout=300)
+            if r.returncode == 0:
+                success = True
+                break
+
+            last_stderr = r.stderr or ""
+            last_error = summarize_ytdlp_error(last_stderr)
+
+        if success:
+            break
+
+    if not success:
+        if youtube:
+            if looks_like_age_restricted_issue(last_stderr):
+                last_error = (
+                    f"{last_error}. Age-restricted videos require a logged-in, age-verified "
+                    "YouTube account in Chrome/Edge. Sign in there and retry."
+                )
+            elif looks_like_youtube_challenge_issue(last_stderr):
+                hint = "Update yt-dlp (`pip install -U yt-dlp`) and retry."
+                if not has_deno_runtime():
+                    hint += " Install Deno (`winget install DenoLand.Deno`) for challenge solving."
+                last_error = f"{last_error}. {hint}"
+        raise RuntimeError(last_error)
+
+    audio_files = list(job_dir.glob("audio.*"))
+    if not audio_files:
+        raise RuntimeError("No audio file downloaded")
+    return str(audio_files[0])
 
 
 @app.route("/api/download", methods=["POST"])
@@ -615,8 +1149,26 @@ def run_ffmpeg(args, env, timeout=120):
     return r
 
 
-def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, trim_start=0, trim_end=0, 
-                            use_separate_audio=False, use_static_image=False, resolution=720, buffer_duration=2, normalize_audio=True):
+def run_processing_pipeline(
+    job_id,
+    crop_x,
+    crop_y,
+    crop_width,
+    crop_height,
+    trim_start=0,
+    trim_end=0,
+    use_separate_audio=False,
+    use_static_image=False,
+    resolution=720,
+    buffer_duration=2,
+    normalize_audio=True,
+    audio_fade_mode="none",
+    audio_fade_duration=0.35,
+    separate_audio_source_type="url",
+    separate_audio_url="",
+    separate_audio_start=None,
+    separate_audio_end=None,
+):
     """Run the full ffmpeg pipeline in a background thread.
     
     Audio Quality Strategy:
@@ -664,8 +1216,26 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         input_file = str(files[0])
         
         # Check for separate audio source
-        audio_files = list(job_dir.glob("audio.*"))
-        separate_audio_file = str(audio_files[0]) if audio_files and use_separate_audio else None
+        separate_audio_file = None
+        if use_separate_audio:
+            audio_files = list(job_dir.glob("audio.*"))
+            separate_audio_file = str(audio_files[0]) if audio_files else None
+
+            if (
+                not separate_audio_file
+                and separate_audio_source_type == "url"
+                and separate_audio_url
+            ):
+                jobs[job_id] = {"status": "processing", "progress": 10, "stage": "Downloading separate audio..."}
+                separate_audio_file = download_separate_audio(
+                    job_dir,
+                    separate_audio_url,
+                    None,
+                    None,
+                )
+
+            if not separate_audio_file:
+                raise RuntimeError("Separate audio source is enabled, but no audio file was provided.")
 
         # Check for static image
         static_image_files = list(job_dir.glob("image.*"))
@@ -684,12 +1254,28 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         )
         src_width = int(video_stream.get("width", 0))
         src_height = int(video_stream.get("height", 0))
+        crop_src_width = src_width
+        crop_src_height = src_height
         fps_str = video_stream.get("r_frame_rate", "30/1")
         if "/" in fps_str:
             num, den = fps_str.split("/")
             fps = float(num) / float(den) if float(den) != 0 else 30.0
         else:
             fps = float(fps_str)
+
+        if use_static_image and static_image_file:
+            image_probe = run_ffmpeg(
+                [FFPROBE, "-v", "quiet", "-print_format", "json", "-show_streams", static_image_file],
+                env=env, timeout=15
+            )
+            image_info = json.loads(image_probe.stdout)
+            image_stream = next(
+                (s for s in image_info.get("streams", []) if s.get("codec_type") == "video"),
+                None
+            )
+            if image_stream:
+                crop_src_width = int(image_stream.get("width", crop_src_width))
+                crop_src_height = int(image_stream.get("height", crop_src_height))
 
         # Default sample rate
         sample_rate = "48000"
@@ -715,12 +1301,33 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
                 sample_rate = audio_stream.get("sample_rate", "48000")
 
         # Clamp crop parameters to valid range
-        crop_width = min(crop_width, src_width)
-        crop_height = min(crop_height, src_height)
-        crop_x = max(0, min(crop_x, src_width - crop_width))
-        crop_y = max(0, min(crop_y, src_height - crop_height))
+        if crop_width <= 0:
+            crop_width = crop_src_width
+        if crop_height <= 0:
+            crop_height = crop_src_height
+        crop_width = min(crop_width, crop_src_width)
+        crop_height = min(crop_height, crop_src_height)
+        crop_x = max(0, min(crop_x, crop_src_width - crop_width))
+        crop_y = max(0, min(crop_y, crop_src_height - crop_height))
 
-        duration = trim_end - trim_start
+        duration = max(0.0, trim_end - trim_start)
+        audio_seek_start = 0.0
+        requested_audio_duration = 0.0
+        if use_separate_audio:
+            if separate_audio_start is not None:
+                audio_seek_start = max(0.0, float(separate_audio_start))
+            if (
+                separate_audio_start is not None
+                and separate_audio_end is not None
+                and separate_audio_end > separate_audio_start
+            ):
+                requested_audio_duration = float(separate_audio_end - separate_audio_start)
+                if duration > 0:
+                    duration = min(duration, requested_audio_duration)
+                else:
+                    duration = requested_audio_duration
+        source_duration = float(info.get("format", {}).get("duration", 0) or 0)
+        clip_duration_for_fade = duration if duration > 0 else max(0.0, source_duration - max(0.0, trim_start))
         audio_source = separate_audio_file if separate_audio_file else input_file
         
         # ── Stage 1: Audio Analysis (if needed) ──
@@ -732,12 +1339,14 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
             # Analyze source audio directly with trim applied
             # Note: We duplicate the input args here for the analysis pass
             analysis_args = [FFMPEG]
-            if trim_start > 0:
+            if use_separate_audio and audio_seek_start > 0:
+                analysis_args.extend(["-ss", str(audio_seek_start)])
+            elif trim_start > 0:
                 analysis_args.extend(["-ss", str(trim_start)])
 
             analysis_args.extend(["-i", audio_source])
 
-            if trim_end > 0 and trim_end > trim_start:
+            if duration > 0:
                  analysis_args.extend(["-t", str(duration)])
 
             # Use resample to ensure consistent analysis
@@ -785,13 +1394,13 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         if use_static_image and static_image_file:
              cmd.extend(["-loop", "1", "-i", static_image_file])
              # Video filter for static image
-             vf = f"scale={output_width}:{output_height}:force_original_aspect_ratio=decrease,pad={output_width}:{output_height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+             vf = f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y}:exact=1,scale={output_width}:{output_height},setsar=1"
         else:
             if trim_start > 0:
                 cmd.extend(["-ss", str(trim_start)])
             cmd.extend(["-i", input_file])
             # Video filter for video clip
-            vf = f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y},scale={output_width}:{output_height},setsar=1"
+            vf = f"crop={crop_width}:{crop_height}:{crop_x}:{crop_y}:exact=1,scale={output_width}:{output_height},setsar=1"
 
         # Input 1 (or 0): Audio Source
         # If separate audio, it's a second input. If separate_audio is false but we used static image, we need audio from input_file.
@@ -801,8 +1410,8 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
 
         if use_separate_audio:
             # Separate audio file is Input 1
-            if trim_start > 0:
-                cmd.extend(["-ss", str(trim_start)])
+            if audio_seek_start > 0:
+                cmd.extend(["-ss", str(audio_seek_start)])
             cmd.extend(["-i", separate_audio_file])
             separate_audio_input_idx = 1
         elif use_static_image:
@@ -816,7 +1425,7 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
             separate_audio_input_idx = 0
 
         # Common Output Duration
-        if trim_end > 0 and trim_end > trim_start:
+        if duration > 0:
              cmd.extend(["-t", str(duration)])
 
         # Audio Filter Chain
@@ -825,13 +1434,27 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         if measured_loudnorm_filter:
             af += measured_loudnorm_filter
 
+        fade_mode = str(audio_fade_mode or "none").strip().lower()
+        if fade_mode not in {"none", "start", "end", "both"}:
+            fade_mode = "none"
+        if fade_mode != "none":
+            fade_seconds = min(1.0, max(0.05, float(audio_fade_duration or 0.35)))
+            if clip_duration_for_fade > 0:
+                fade_seconds = min(fade_seconds, max(0.05, clip_duration_for_fade / 4.0))
+            if fade_mode in {"start", "both"}:
+                af += f",afade=t=in:st=0:d={fade_seconds:.3f}"
+            if fade_mode in {"end", "both"} and clip_duration_for_fade > 0.05:
+                fade_out_start = max(0.0, clip_duration_for_fade - fade_seconds)
+                af += f",afade=t=out:st={fade_out_start:.3f}:d={fade_seconds:.3f}"
+
         # Filter Complex Construction
         filter_complex = f"[0:v]{vf}[v];[{separate_audio_input_idx}:a]{af}[a]"
 
+        output_video_fps = 30.0
         cmd.extend([
             "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "[a]",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", # Ensure video format matches previous intermediate
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(int(output_video_fps)), # Ensure video format matches previous intermediate
             "-c:a", "pcm_s16le", # PCM audio
             cropped
         ])
@@ -842,20 +1465,63 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         # ── Stage 4: Extract last frame + create still buffer ──
         if buffer_duration > 0:
             jobs[job_id] = {"status": "processing", "progress": 65, "stage": "Creating end buffer..."}
-            last_frame = str(proc_dir / "last_frame.jpg")
-            run_ffmpeg([
-                FFMPEG, "-sseof", "-0.1", "-i", cropped,
-                "-frames:v", "1", "-q:v", "2", "-y", last_frame,
-            ], env=env, timeout=30)
+            if use_static_image and static_image_file:
+                # Static-image mode does not need last-frame extraction; re-use the selected image.
+                still_image_input = static_image_file
+            else:
+                last_frame_path = proc_dir / "last_frame.png"
+                last_frame = str(last_frame_path)
+                last_frame_path.unlink(missing_ok=True)
+                frame_step = 1.0 / output_video_fps
+                last_frame_ts = 0.0
+                extracted_last_frame = False
+                try:
+                    cropped_probe = run_ffmpeg(
+                        [FFPROBE, "-v", "quiet", "-print_format", "json", "-show_format", cropped],
+                        env=env, timeout=15
+                    )
+                    cropped_info = json.loads(cropped_probe.stdout or "{}")
+                    cropped_duration = float(cropped_info.get("format", {}).get("duration", 0) or 0)
+                    if cropped_duration > 0:
+                        last_frame_ts = max(0.0, cropped_duration - frame_step)
+
+                    # Use accurate seek (after input) to capture the actual final frame.
+                    run_ffmpeg([
+                        FFMPEG, "-i", cropped,
+                        "-ss", f"{last_frame_ts:.6f}",
+                        "-frames:v", "1", "-y", last_frame,
+                    ], env=env, timeout=30)
+                    extracted_last_frame = last_frame_path.exists() and last_frame_path.stat().st_size > 0
+                except Exception:
+                    extracted_last_frame = False
+
+                if not extracted_last_frame:
+                    # Fallback paths for odd sources/timelines; some inputs return 0 but write no frame.
+                    for seek_tail in ["-0.01", "-0.05", "-0.1", "-1"]:
+                        try:
+                            last_frame_path.unlink(missing_ok=True)
+                            run_ffmpeg([
+                                FFMPEG, "-sseof", seek_tail, "-i", cropped,
+                                "-frames:v", "1", "-y", last_frame,
+                            ], env=env, timeout=30)
+                            if last_frame_path.exists() and last_frame_path.stat().st_size > 0:
+                                extracted_last_frame = True
+                                break
+                        except Exception:
+                            continue
+
+                if not extracted_last_frame:
+                    raise RuntimeError("Failed to extract final frame for end buffer.")
+                still_image_input = last_frame
 
             # Create still buffer with silence (will encode audio once at final stage)
             still_buffer = str(proc_dir / "still_buffer.mp4")
             run_ffmpeg([
-                FFMPEG, "-loop", "1", "-i", last_frame,
+                FFMPEG, "-loop", "1", "-framerate", str(int(output_video_fps)), "-i", still_image_input,
                 "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={sample_rate}",
                 "-c:v", "libx264", "-t", str(buffer_duration), "-pix_fmt", "yuv420p",
-                "-vf", f"scale={output_width}:{output_height}",
-                "-r", str(round(fps)), "-c:a", "pcm_s16le",
+                "-vf", f"fps={int(output_video_fps)},scale={output_width}:{output_height}:flags=lanczos,setsar=1,format=yuv420p",
+                "-r", str(int(output_video_fps)), "-c:a", "pcm_s16le", "-ar", str(sample_rate), "-ac", "2",
                 "-shortest", "-y", still_buffer,
             ], env=env, timeout=30)
 
@@ -863,11 +1529,20 @@ def run_processing_pipeline(job_id, crop_x, crop_y, crop_width, crop_height, tri
         if buffer_duration > 0:
             jobs[job_id] = {"status": "processing", "progress": 75, "stage": "Joining clips..."}
             concatenated = str(proc_dir / "concatenated.mp4")
+            vnorm = f"fps={int(output_video_fps)},scale={output_width}:{output_height}:flags=lanczos,setsar=1,format=yuv420p"
+            anorm = f"aformat=sample_fmts=s16:sample_rates={sample_rate}:channel_layouts=stereo"
+            concat_filter = (
+                f"[0:v]{vnorm}[v0];"
+                f"[1:v]{vnorm}[v1];"
+                f"[0:a]{anorm}[a0];"
+                f"[1:a]{anorm}[a1];"
+                f"[v0][a0][v1][a1]concat=n=2:v=1:a=1[outv][outa]"
+            )
             run_ffmpeg([
                 FFMPEG,
                 "-i", cropped,
                 "-i", still_buffer,
-                "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[outv][outa]",
+                "-filter_complex", concat_filter,
                 "-map", "[outv]", "-map", "[outa]",
                 "-c:v", "libx264", "-crf", "18", "-preset", "fast",
                 "-c:a", "pcm_s16le",  # Keep audio lossless for now
@@ -915,6 +1590,12 @@ def process_video():
             "trim_start": request.form.get("trim_start"),
             "trim_end": request.form.get("trim_end"),
             "use_separate_audio": request.form.get("use_separate_audio") == "true",
+            "audio_fade_mode": request.form.get("audio_fade_mode", "none"),
+            "audio_fade_duration": request.form.get("audio_fade_duration", "0.35"),
+            "audio_source_type": request.form.get("audio_source_type", "url"),
+            "audio_url": request.form.get("audio_url", ""),
+            "audio_start": request.form.get("audio_start", ""),
+            "audio_end": request.form.get("audio_end", ""),
             "use_static_image": request.form.get("use_static_image") == "true",
             "settings": json.loads(raw_settings) if raw_settings else {}
         }
@@ -929,6 +1610,10 @@ def process_video():
     trim_start = float(data.get("trim_start", 0))
     trim_end = float(data.get("trim_end", 0))
     use_separate_audio = data.get("use_separate_audio", False)
+    audio_source_type = data.get("audio_source_type", "url")
+    audio_url = data.get("audio_url", "").strip()
+    audio_start_raw = data.get("audio_start", "")
+    audio_end_raw = data.get("audio_end", "")
     use_static_image = data.get("use_static_image", False)
     
     # Settings
@@ -936,9 +1621,72 @@ def process_video():
     resolution = int(settings.get("resolution", "720"))
     buffer_duration = int(settings.get("bufferDuration", "2"))
     normalize_audio = settings.get("normalizeAudio", True)
+    audio_fade_mode = str(
+        data.get("audio_fade_mode", settings.get("audioFadeMode", "none"))
+    ).strip().lower()
+    if audio_fade_mode not in {"none", "start", "end", "both"}:
+        audio_fade_mode = "none"
+    raw_audio_fade_duration = data.get(
+        "audio_fade_duration",
+        settings.get("audioFadeDuration", "0.35")
+    )
+    try:
+        audio_fade_duration = float(raw_audio_fade_duration)
+    except (TypeError, ValueError):
+        audio_fade_duration = 0.35
+    # Keep UI and backend aligned to the 3 exposed durations.
+    allowed_fade_durations = {0.2, 0.35, 0.5}
+    if audio_fade_duration not in allowed_fade_durations:
+        audio_fade_duration = 0.35
 
     if not job_id or not is_safe_job_id(job_id):
         return jsonify({"error": "Invalid job_id"}), 400
+
+    audio_start_sec = None
+    audio_end_sec = None
+    if use_separate_audio:
+        if audio_source_type not in {"url", "file"}:
+            return jsonify({"error": "Invalid audio source type"}), 400
+
+        job_dir = DOWNLOADS_DIR / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        if audio_start_raw and audio_end_raw:
+            try:
+                audio_start_sec = parse_timestamp_to_seconds(str(audio_start_raw))
+                audio_end_sec = parse_timestamp_to_seconds(str(audio_end_raw))
+            except (TypeError, ValueError):
+                return jsonify({"error": "Invalid audio start/end format"}), 400
+            if audio_end_sec <= audio_start_sec:
+                return jsonify({"error": "Audio end time must be after audio start time"}), 400
+
+        if audio_source_type == "file":
+            if "separate_audio_file" not in request.files:
+                return jsonify({"error": "Please upload a local audio file"}), 400
+
+            audio_file = request.files["separate_audio_file"]
+            if not audio_file.filename:
+                return jsonify({"error": "Please upload a local audio file"}), 400
+
+            allowed_audio_exts = {
+                "mp3", "wav", "m4a", "aac", "flac", "ogg", "opus",
+                "mp4", "mov", "avi", "mkv", "webm", "wmv", "m4v"
+            }
+            ext = audio_file.filename.rsplit(".", 1)[1].lower() if "." in audio_file.filename else ""
+            if ext not in allowed_audio_exts:
+                return jsonify({"error": "Unsupported audio file format"}), 400
+
+            # Remove any previous separate audio for this job and save the new file.
+            for old_audio in job_dir.glob("audio.*"):
+                old_audio.unlink(missing_ok=True)
+            audio_file.save(str(job_dir / f"audio.{ext}"))
+        else:
+            # Source is URL - remove any stale uploaded audio from previous attempts.
+            for old_audio in job_dir.glob("audio.*"):
+                old_audio.unlink(missing_ok=True)
+            audio_url = clean_video_url(audio_url)
+            if not audio_url:
+                return jsonify({"error": "Please provide a separate audio URL"}), 400
         
     # Handle image upload if present
     if use_static_image and 'static_image' in request.files:
@@ -958,7 +1706,17 @@ def process_video():
     thread = threading.Thread(
         target=run_processing_pipeline,
         args=(job_id, crop_x, crop_y, crop_width, crop_height, trim_start, trim_end, use_separate_audio, use_static_image),
-        kwargs={"resolution": resolution, "buffer_duration": buffer_duration, "normalize_audio": normalize_audio},
+        kwargs={
+            "resolution": resolution,
+            "buffer_duration": buffer_duration,
+            "normalize_audio": normalize_audio,
+            "audio_fade_mode": audio_fade_mode,
+            "audio_fade_duration": audio_fade_duration,
+            "separate_audio_source_type": audio_source_type,
+            "separate_audio_url": audio_url,
+            "separate_audio_start": audio_start_sec,
+            "separate_audio_end": audio_end_sec,
+        },
         daemon=True,
     )
     thread.start()
@@ -983,11 +1741,88 @@ def job_status(job_id):
 def download_result(job_id):
     if not is_safe_job_id(job_id):
         return jsonify({"error": "Invalid job_id"}), 400
-    filename = f"alert_{job_id}.mp4"
-    filepath = OUTPUT_DIR / filename
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Unknown job id"}), 404
+    if job.get("status") != "complete":
+        return jsonify({"error": "Result is not ready yet"}), 409
+
+    filename = str(job.get("filename") or f"alert_{job_id}.mp4")
+    safe_filename = Path(filename).name
+    filepath = OUTPUT_DIR / safe_filename
     if not filepath.exists():
         return jsonify({"error": "File not found"}), 404
-    return send_file(str(filepath), as_attachment=True, download_name=filename)
+    return send_file(str(filepath), as_attachment=True, download_name=safe_filename)
+
+
+def probe_media_duration(input_path):
+    """Best-effort duration probe in seconds."""
+    try:
+        r = run_subprocess(
+            [FFPROBE, "-v", "quiet", "-print_format", "json", "-show_format", str(input_path)],
+            timeout=20
+        )
+        if r.returncode != 0:
+            return 0.0
+        info = json.loads(r.stdout or "{}")
+        return float(info.get("format", {}).get("duration", 0) or 0)
+    except Exception:
+        return 0.0
+
+
+@app.route("/api/load-separate-audio/<job_id>", methods=["POST"])
+def load_separate_audio(job_id):
+    job_dir = DOWNLOADS_DIR / job_id
+    if not job_dir.exists():
+        return jsonify({"error": "Load the main video first."}), 400
+
+    source_type = ""
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        source_type = str(payload.get("source_type", "url")).strip().lower()
+    else:
+        source_type = str(request.form.get("source_type", "file")).strip().lower()
+
+    if source_type not in {"url", "file"}:
+        return jsonify({"error": "Invalid audio source type."}), 400
+
+    # Remove old preview audio before loading a new one.
+    for old_audio in job_dir.glob("audio.*"):
+        old_audio.unlink(missing_ok=True)
+
+    try:
+        if source_type == "url":
+            payload = request.get_json(silent=True) or {}
+            audio_url = clean_video_url(str(payload.get("audio_url", "")).strip())
+            if not audio_url:
+                return jsonify({"error": "Please provide an audio URL."}), 400
+            audio_path = download_separate_audio(job_dir, audio_url, None, None)
+        else:
+            if "audio_file" not in request.files:
+                return jsonify({"error": "Please choose a local audio file."}), 400
+            audio_file = request.files["audio_file"]
+            if not audio_file.filename:
+                return jsonify({"error": "Please choose a local audio file."}), 400
+
+            allowed_audio_exts = {
+                "wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "webm", "mp4", "mov", "mkv"
+            }
+            ext = audio_file.filename.rsplit(".", 1)[1].lower() if "." in audio_file.filename else ""
+            if ext not in allowed_audio_exts:
+                return jsonify({"error": "Unsupported audio file format."}), 400
+
+            save_path = job_dir / f"audio.{ext}"
+            audio_file.save(str(save_path))
+            audio_path = str(save_path)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+    duration = probe_media_duration(audio_path)
+    return jsonify({
+        "status": "loaded",
+        "filename": Path(audio_path).name,
+        "duration": round(duration, 2),
+    })
 
 
 # ── Serve source clip (for preview) ─────────────────────────────
@@ -1000,8 +1835,21 @@ def serve_clip(job_id):
     files = list(job_dir.glob("clip.*"))
     if not files:
         return jsonify({"error": "File not found"}), 404
+    clip_path = files[0]
+    mimetype, _ = mimetypes.guess_type(str(clip_path))
     # Ensure range requests work (Flask send_file supports this by default)
-    return send_file(str(files[0]), mimetype="video/mp4")
+    return send_file(str(clip_path), mimetype=mimetype or "application/octet-stream")
+
+
+@app.route("/api/serve-audio/<job_id>")
+def serve_audio(job_id):
+    job_dir = DOWNLOADS_DIR / job_id
+    files = list(job_dir.glob("audio.*"))
+    if not files:
+        return jsonify({"error": "Audio file not found"}), 404
+    audio_path = files[0]
+    mimetype, _ = mimetypes.guess_type(str(audio_path))
+    return send_file(str(audio_path), mimetype=mimetype or "application/octet-stream")
 
 
 # ── Cleanup ─────────────────────────────────────────────────────
@@ -1036,6 +1884,10 @@ def shutdown():
 if __name__ == "__main__":
     if platform.system() == "Windows" and not getattr(sys, 'frozen', False):
         os.system("title deutschmark's Alert! Alert!")
+    print("Checking required dependencies...")
+    ensure_runtime_dependencies(auto_install=AUTO_INSTALL_SUPPORTED)
+    refresh_tool_paths()
+
     print(r"""
     _    _           _   _      _    _           _   _ 
    / \  | | ___ _ __| |_| |    / \  | | ___ _ __| |_| |
@@ -1049,6 +1901,10 @@ if __name__ == "__main__":
     print(f"  ffmpeg:  {FFMPEG}")
     print(f"  ffprobe: {FFPROBE}")
     print(f"  yt-dlp:  {YTDLP}")
+    if DEPS_BOOTSTRAP_STATE["status"] == "failed":
+        print(f"  dependency install warning: {DEPS_BOOTSTRAP_STATE['last_error']}")
+    elif DEPS_BOOTSTRAP_STATE["status"] == "ready":
+        print("  dependency status: ready")
     print("")
     print("  Starting server...")
     print("  App will open in your browser.")

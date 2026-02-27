@@ -1,0 +1,21 @@
+Alert! Alert! - Third-Party Notices
+===================================
+
+This application may download and use third-party tools at runtime:
+
+1) FFmpeg
+   Project: https://ffmpeg.org/
+   License information: https://ffmpeg.org/legal.html
+   Windows download source used by this app:
+   https://www.gyan.dev/ffmpeg/builds/
+
+2) yt-dlp
+   Project: https://github.com/yt-dlp/yt-dlp
+   License information: https://github.com/yt-dlp/yt-dlp#license
+   Runtime download source used by this app:
+   https://github.com/yt-dlp/yt-dlp/releases/latest
+
+The downloaded binaries are stored in a per-user runtime directory
+(LOCALAPPDATA\AlertAlert\runtime\bin on Windows).
+
+Please review upstream licenses and terms before redistribution.
