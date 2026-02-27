@@ -4,22 +4,32 @@
  */
 const App = (() => {
     // State
+    const DEFAULT_PREVIEW_VOLUME = 50;
     let videoUrl = "";
     let videoDuration = 0;
     let jobId = "";
     let videoInfo = null; // { width, height, fps, duration }
     let cropPreview = null;
     let pollTimer = null;
+    let downloadableJobId = "";
+    let dependencyInstallAttempted = false;
+    let dependencyInstallInFlight = false;
 
     // Audio source state
     let audioUrl = "";
     let audioDuration = 0;
     let audioValidated = false;
+    let audioSourceType = "url"; // "url" or "file"
+    let separateAudioFile = null;
     let useSeparateAudio = false;
+    let separateAudioPreview = null;
+    let separateAudioPreviewLoaded = false;
+    let separateAudioSyncBound = false;
 
     // Static image state
     let useStaticImage = false;
     let staticImageFile = null;
+    let staticImagePreviewUrl = "";
 
     // Local video state
     let sourceType = "url"; // "url" or "file"
@@ -63,6 +73,19 @@ const App = (() => {
 
     function hideError(id) {
         hide(id);
+    }
+
+    function clearWorkflowErrors() {
+        hideError("step1-error");
+        hideError("step2-error");
+        hideError("step4-error");
+    }
+
+    function lockExportForCurrentWorkflow() {
+        downloadableJobId = "";
+        hide("download-section");
+        const exportBtn = $("export-btn");
+        if (exportBtn) exportBtn.disabled = true;
     }
 
     function setLoading(btnId, loading) {
@@ -129,6 +152,135 @@ const App = (() => {
         }
     }
 
+    function getSeparateAudioElement() {
+        if (!separateAudioPreview) {
+            separateAudioPreview = new Audio();
+            separateAudioPreview.preload = "auto";
+            separateAudioPreview.crossOrigin = "anonymous";
+        }
+        return separateAudioPreview;
+    }
+
+    function hasActiveSeparateAudioPreview() {
+        return !!(useSeparateAudio && separateAudioPreviewLoaded);
+    }
+
+    function getSeparateAudioStartSeconds() {
+        return parseTimestamp($("audio-start-input")?.value || "0:00");
+    }
+
+    function getSeparateAudioEndSeconds() {
+        return parseTimestamp($("audio-end-input")?.value || "0:00");
+    }
+
+    function clearLoadedSeparateAudioPreview() {
+        separateAudioPreviewLoaded = false;
+        if (separateAudioPreview) {
+            separateAudioPreview.pause();
+            separateAudioPreview.removeAttribute("src");
+            separateAudioPreview.load();
+        }
+        updatePreviewAudioRouting();
+    }
+
+    function bindSeparateAudioSync() {
+        if (separateAudioSyncBound) return;
+        const video = $("crop-video");
+        if (!video) return;
+        separateAudioSyncBound = true;
+
+        video.addEventListener("play", () => {
+            syncSeparateAudioWithVideo(true);
+        });
+        video.addEventListener("pause", () => {
+            if (!separateAudioPreview) return;
+            separateAudioPreview.pause();
+        });
+        video.addEventListener("seeking", () => {
+            syncSeparateAudioWithVideo(true);
+        });
+        video.addEventListener("timeupdate", () => {
+            syncSeparateAudioWithVideo(false);
+        });
+        video.addEventListener("ratechange", () => {
+            if (!separateAudioPreview) return;
+            separateAudioPreview.playbackRate = video.playbackRate || 1;
+        });
+    }
+
+    function syncSeparateAudioWithVideo(forceSeek = false) {
+        if (!hasActiveSeparateAudioPreview()) return;
+
+        const video = $("crop-video");
+        const audio = getSeparateAudioElement();
+        if (!video || !audio || !audio.src) return;
+
+        const audioStart = getSeparateAudioStartSeconds();
+        const audioEnd = getSeparateAudioEndSeconds();
+        const clipOffset = Math.max(0, (video.currentTime || 0) - trimStart);
+        const targetAudioTime = Math.max(0, audioStart + clipOffset);
+        const drift = Math.abs((audio.currentTime || 0) - targetAudioTime);
+
+        if (forceSeek || drift > 0.2) {
+            try {
+                audio.currentTime = targetAudioTime;
+            } catch (e) {
+                // Ignore seek errors while metadata is still settling.
+            }
+        }
+
+        if (!video.paused) {
+            if (audioEnd > audioStart && targetAudioTime >= audioEnd) {
+                if (!audio.paused) audio.pause();
+                return;
+            }
+            if (audio.paused) {
+                audio.play().catch(() => { });
+            }
+        } else if (!audio.paused) {
+            audio.pause();
+        }
+    }
+
+    async function loadAudioSourceForPreview(srcUrl) {
+        const audio = getSeparateAudioElement();
+        await new Promise((resolve, reject) => {
+            audio.onloadedmetadata = () => resolve();
+            audio.onerror = () => reject(new Error("Failed to load separate audio preview."));
+            audio.src = srcUrl;
+            audio.load();
+        });
+        separateAudioPreviewLoaded = true;
+        updatePreviewAudioRouting();
+        syncSeparateAudioWithVideo(true);
+        onVolumeChange();
+    }
+
+    function updatePreviewAudioRouting() {
+        const video = $("crop-video");
+        const muteBtn = $("preview-mute-btn");
+        if (!video) return;
+
+        if (hasActiveSeparateAudioPreview()) {
+            video.muted = true;
+            if (muteBtn) {
+                muteBtn.disabled = true;
+                muteBtn.textContent = "🎵 Separate Audio";
+            }
+            return;
+        }
+
+        if (muteBtn) {
+            muteBtn.disabled = false;
+            const vol = parseInt($("volume-slider")?.value || "50", 10);
+            muteBtn.textContent = vol === 0 ? "🔇 Unmute" : "🔊 Mute";
+        }
+
+        if (separateAudioPreview && !separateAudioPreview.paused) {
+            separateAudioPreview.pause();
+        }
+    }
+
     async function api(endpoint, options = {}) {
         const resp = await fetch(endpoint, {
             headers: { "Content-Type": "application/json" },
@@ -137,62 +289,199 @@ const App = (() => {
         return resp.json();
     }
 
+    function setDependencyBanner(messageHtml, instructionsHtml = "", showAsError = true) {
+        const banner = $("dep-banner");
+        const msg = $("dep-message");
+        const instEl = $("dep-instructions");
+        if (!banner || !msg || !instEl) return;
+        msg.innerHTML = messageHtml;
+        instEl.innerHTML = instructionsHtml;
+        banner.classList.toggle("banner-error", showAsError);
+        show(banner);
+    }
+
+    function toggleSettingsPanel(panelId) {
+        const panel = $(panelId);
+        if (!panel) return;
+        panel.classList.toggle("hidden");
+        const isOpen = !panel.classList.contains("hidden");
+        document.querySelectorAll(`[onclick*="${panelId}"]`).forEach((trigger) => {
+            trigger.classList.toggle("active", isOpen);
+        });
+    }
+
+    function openSettingsPanel(panelId, stepId = "") {
+        const panel = $(panelId);
+        if (!panel) return;
+        show(panel);
+        document.querySelectorAll(`[onclick*="${panelId}"]`).forEach((trigger) => {
+            trigger.classList.add("active");
+        });
+
+        const step = stepId ? $(stepId) : panel.closest(".step");
+        if (step) {
+            step.classList.remove("disabled");
+            step.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+            panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+    }
+
+    function updateAudioFadeNote(settings = getSettings()) {
+        const note = $("audio-fade-note");
+        if (!note) return;
+        note.textContent = `Fade length set to ${settings.audioFadeDuration}s in Audio Processing Settings`;
+    }
+
+    function updateSettingsPanelLabels(settings = getSettings()) {
+        const outputToggle = $("output-settings-toggle");
+        const audioToggle = $("audio-settings-toggle");
+        if (outputToggle) {
+            const bufferValue = String(settings.bufferDuration || "2");
+            const bufferLabel = bufferValue === "0" ? "No buffer" : `Buffer ${bufferValue}s`;
+            outputToggle.textContent = `Output Settings (${settings.resolution}p, ${bufferLabel})`;
+        }
+        if (audioToggle) {
+            const normalizeLabel = settings.normalizeAudio ? "Normalize On" : "Normalize Off";
+            audioToggle.textContent = `Audio Processing Settings (${normalizeLabel}, ${settings.audioFadeDuration}s fade)`;
+        }
+        updateAudioFadeNote(settings);
+    }
+
+    function renderDependencyStatus(deps) {
+        const missing = [];
+        const instructions = [];
+
+        const ffmpegStatus = $("dep-ffmpeg-status");
+        const ytdlpStatus = $("dep-ytdlp-status");
+        const denoStatus = $("dep-deno-status");
+        const installBtn = $("auto-install-deps-btn");
+
+        if (deps.ffmpeg?.installed && deps.ffprobe?.installed) {
+            ffmpegStatus.textContent = "✓ Installed";
+            ffmpegStatus.className = "dep-status installed";
+        } else {
+            ffmpegStatus.textContent = "✗ Missing";
+            ffmpegStatus.className = "dep-status missing";
+            missing.push("FFmpeg/ffprobe");
+            instructions.push("FFmpeg: Use Auto Install in Step 1. If needed, run 'winget install Gyan.FFmpeg'.");
+        }
+
+        if (deps["yt-dlp"]?.installed) {
+            ytdlpStatus.textContent = "✓ Installed";
+            ytdlpStatus.className = "dep-status installed";
+        } else {
+            ytdlpStatus.textContent = "✗ Missing";
+            ytdlpStatus.className = "dep-status missing";
+            missing.push("yt-dlp");
+            instructions.push("yt-dlp: Use Auto Install in Step 1, or install manually.");
+        }
+
+        if (denoStatus) {
+            if (deps.deno?.installed) {
+                denoStatus.textContent = "✓ Installed";
+                denoStatus.className = "dep-status installed";
+            } else {
+                denoStatus.textContent = "⚠ Optional";
+                denoStatus.className = "dep-status missing";
+                instructions.push("Deno is optional. Install with 'winget install DenoLand.Deno' for better YouTube challenge handling.");
+            }
+        }
+
+        if (installBtn) {
+            const shouldShowInstall = missing.length > 0 && deps.auto_install_available;
+            installBtn.classList.toggle("hidden", !shouldShowInstall);
+            installBtn.disabled = dependencyInstallInFlight;
+        }
+
+        if (missing.length > 0) {
+            show("dependency-settings-panel");
+            document.querySelectorAll(`[onclick*="dependency-settings-panel"]`).forEach((trigger) => {
+                trigger.classList.add("active");
+            });
+            const bootstrapMessage = deps.bootstrap?.message || "";
+            const bootstrapError = deps.bootstrap?.last_error || "";
+            const extra = bootstrapError
+                ? `<br><strong>Auto-install error:</strong> ${bootstrapError}`
+                : (bootstrapMessage ? `<br>${bootstrapMessage}` : "");
+            setDependencyBanner(
+                `<strong>Missing dependencies:</strong> ${missing.join(", ")}${extra}`,
+                `<strong>How to fix:</strong><br>${instructions.join("<br>")}`,
+                true
+            );
+        } else {
+            hide("dep-banner");
+        }
+
+        return missing;
+    }
+
+    async function installMissingDependencies(manual = false) {
+        if (dependencyInstallInFlight) return;
+        dependencyInstallInFlight = true;
+        const installBtn = $("auto-install-deps-btn");
+        const previousLabel = installBtn?.textContent || "";
+        if (installBtn) {
+            installBtn.disabled = true;
+            installBtn.textContent = "Installing...";
+        }
+        setDependencyBanner(
+            "<strong>Installing dependencies...</strong> This may take a minute on first run.",
+            "Downloading ffmpeg and yt-dlp to your local app folder.",
+            false
+        );
+        try {
+            const deps = await api("/api/bootstrap-deps", { method: "POST" });
+            renderDependencyStatus(deps);
+            if ((deps.required_missing || []).length === 0) {
+                if (installBtn) installBtn.classList.add("hidden");
+            } else if (manual) {
+                setDependencyBanner(
+                    "<strong>Dependencies are still missing.</strong>",
+                    "Use the Step 1 troubleshooting list, then restart the app after manual install.",
+                    true
+                );
+            }
+        } catch (e) {
+            setDependencyBanner(
+                "<strong>Dependency installation failed.</strong>",
+                "Check your internet connection and try Auto Install again.",
+                true
+            );
+        } finally {
+            dependencyInstallInFlight = false;
+            if (installBtn && !installBtn.classList.contains("hidden")) {
+                installBtn.disabled = false;
+                installBtn.textContent = previousLabel || "Auto Install Missing";
+            }
+        }
+    }
+
     // ── Initialization ──────────────────────────────────────────
 
     async function init() {
+        lockExportForCurrentWorkflow();
+
         // Check dependencies
         try {
             const deps = await api("/api/check-deps");
-            const missing = [];
-            const instructions = [];
+            const missing = renderDependencyStatus(deps);
 
-            // Update settings status indicators
-            const ffmpegStatus = $("dep-ffmpeg-status");
-            const ytdlpStatus = $("dep-ytdlp-status");
-
-            if (deps.ffmpeg?.installed) {
-                ffmpegStatus.textContent = "✓ Installed";
-                ffmpegStatus.className = "dep-status installed";
-            } else {
-                ffmpegStatus.textContent = "✗ Missing";
-                ffmpegStatus.className = "dep-status missing";
-                missing.push("FFmpeg");
-                instructions.push("FFmpeg: Run 'winget install Gyan.FFmpeg' or download from ffmpeg.org");
-            }
-
-            if (deps["yt-dlp"]?.installed) {
-                ytdlpStatus.textContent = "✓ Installed";
-                ytdlpStatus.className = "dep-status installed";
-            } else {
-                ytdlpStatus.textContent = "✗ Missing";
-                ytdlpStatus.className = "dep-status missing";
-                missing.push("yt-dlp");
-                instructions.push("yt-dlp: Run 'pip install yt-dlp' in Command Prompt");
-            }
-
-            // Show banner if missing dependencies
-            if (missing.length > 0) {
-                const banner = $("dep-banner");
-                const msg = $("dep-message");
-                const instEl = $("dep-instructions");
-
-                msg.innerHTML = `<strong>⚠️ Missing dependencies:</strong> ${missing.join(", ")}`;
-                instEl.innerHTML = `<strong>How to fix:</strong><br>${instructions.join("<br>")}`;
-
-                banner.classList.add("banner-error");
-                show(banner);
+            if (missing.length > 0 && deps.auto_install_available && !dependencyInstallAttempted) {
+                dependencyInstallAttempted = true;
+                await installMissingDependencies(false);
             }
         } catch (e) {
             // Server not running - show connection error
-            const banner = $("dep-banner");
-            const msg = $("dep-message");
-            msg.innerHTML = "<strong>⚠️ Cannot connect to server.</strong> Make sure the app is running.";
-            banner.classList.add("banner-error");
-            show(banner);
+            setDependencyBanner(
+                "<strong>Cannot connect to server.</strong>",
+                "Make sure the app is running.",
+                true
+            );
         }
 
         // Audio clip duration
-        $("audio-start-input").addEventListener("input", updateAudioClipDuration);
+        $("audio-start-input").addEventListener("input", onAudioStartInputChange);
         $("audio-end-input").addEventListener("input", updateAudioClipDuration);
 
         // Auto-format timestamps on blur
@@ -206,7 +495,10 @@ const App = (() => {
         $("trim-end-slider").addEventListener("input", onTrimSliderChange);
 
         // Volume slider
+        $("volume-slider").value = String(DEFAULT_PREVIEW_VOLUME);
+        $("volume-value").textContent = `${DEFAULT_PREVIEW_VOLUME}%`;
         $("volume-slider").addEventListener("input", onVolumeChange);
+        onVolumeChange();
 
         // Allow Enter to validate
         $("url-input").addEventListener("keydown", (e) => {
@@ -216,6 +508,11 @@ const App = (() => {
         $("audio-url-input").addEventListener("keydown", (e) => {
             if (e.key === "Enter") validateAudioUrl();
         });
+        $("audio-url-input").addEventListener("input", () => {
+            audioValidated = false;
+            clearLoadedSeparateAudioPreview();
+        });
+        $("audio-file-input").addEventListener("change", onAudioFileSelect);
 
         // Audio source toggle
         $("use-separate-audio").addEventListener("change", onAudioToggle);
@@ -227,15 +524,7 @@ const App = (() => {
         // Local video file upload
         $("local-video-input").addEventListener("change", onLocalVideoSelect);
         setupFileDragDrop();
-
-        // Close settings when clicking outside
-        document.addEventListener("click", (e) => {
-            const dropdown = document.querySelector(".settings-dropdown");
-            if (dropdown && !dropdown.contains(e.target)) {
-                hide("settings-menu");
-                $("settings-btn").classList.remove("active");
-            }
-        });
+        bindSeparateAudioSync();
 
         // Load saved settings
         loadSettings();
@@ -308,18 +597,47 @@ const App = (() => {
         } else {
             $("audio-clip-duration").textContent = "";
         }
+        syncSeparateAudioWithVideo(true);
     }
 
-    function onAudioToggle() {
-        useSeparateAudio = $("use-separate-audio").checked;
-        if (useSeparateAudio) {
-            show("audio-source-section");
-        } else {
-            hide("audio-source-section");
-            // Reset audio validation state
-            audioValidated = false;
-            audioUrl = "";
+    function formatSecondsForTimestampInput(seconds) {
+        const safe = Math.max(0, Number(seconds) || 0);
+        const hours = Math.floor(safe / 3600);
+        const mins = Math.floor((safe % 3600) / 60);
+        const secs = Math.floor(safe % 60);
+        if (hours > 0) {
+            return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
         }
+        return `${mins}:${secs.toString().padStart(2, "0")}`;
+    }
+
+    function getTargetClipDurationSeconds() {
+        const trimmed = Math.max(0, trimEnd - trimStart);
+        if (trimmed > 0) return trimmed;
+        return clipDuration || videoDuration || (videoInfo && Number(videoInfo.duration)) || 0;
+    }
+
+    function syncAudioEndToClipDuration() {
+        if (!useSeparateAudio) return;
+        const startInput = $("audio-start-input");
+        const endInput = $("audio-end-input");
+        if (!startInput || !endInput) return;
+        const clipDur = getTargetClipDurationSeconds();
+        if (clipDur <= 0) return;
+
+        const start = parseTimestamp(startInput.value);
+        const newEnd = start + clipDur;
+        endInput.value = formatSecondsForTimestampInput(newEnd);
+        updateAudioClipDuration();
+    }
+
+    function onAudioStartInputChange() {
+        if (useSeparateAudio) {
+            syncAudioEndToClipDuration();
+        } else {
+            updateAudioClipDuration();
+        }
+        syncSeparateAudioWithVideo(true);
     }
 
     function debounce(fn, ms) {
@@ -365,6 +683,11 @@ const App = (() => {
         if (video && video.src) {
             video.currentTime = trimStart;
         }
+
+        if (useSeparateAudio) {
+            syncAudioEndToClipDuration();
+        }
+        syncSeparateAudioWithVideo(true);
     }
 
     function initTrimSliders(duration) {
@@ -377,27 +700,33 @@ const App = (() => {
         $("trim-start-val").textContent = formatDuration(0);
         $("trim-end-val").textContent = formatDuration(duration);
         $("trim-duration").textContent = "Duration: " + formatDuration(duration);
+        if (useSeparateAudio) {
+            syncAudioEndToClipDuration();
+        }
     }
 
     function onVolumeChange() {
         const vol = parseInt($("volume-slider").value);
         const video = $("crop-video");
+        const audio = separateAudioPreview;
+        const useExternalAudio = hasActiveSeparateAudioPreview();
         if (video) {
             video.volume = vol / 100;
-            video.muted = vol === 0;
+            video.muted = useExternalAudio ? true : vol === 0;
+        }
+        if (audio) {
+            audio.volume = vol / 100;
+            audio.muted = vol === 0;
         }
         $("volume-value").textContent = vol + "%";
-
-        // Update mute button state
-        const muteBtn = $("preview-mute-btn");
-        if (muteBtn) {
-            muteBtn.textContent = vol === 0 ? "🔇 Unmute" : "🔊 Mute";
-        }
+        updatePreviewAudioRouting();
     }
 
     // ── Step 1: Validate URL & Download ────────────────────────────────────
 
     async function validateUrl() {
+        lockExportForCurrentWorkflow();
+        clearWorkflowErrors();
         const url = $("url-input").value.trim();
         if (!url) {
             showError("step1-error", "Please enter a video URL.");
@@ -448,18 +777,13 @@ const App = (() => {
             }
 
             jobId = downloadData.job_id;
-            $("download-status-text").textContent = "Loading preview...";
+            if (!jobId) {
+                throw new Error("Download job did not return an id.");
+            }
+            clearLoadedSeparateAudioPreview();
 
-            // Get video info
-            videoInfo = await api(`/api/video-info/${jobId}`);
-
-            // Load video preview
-            loadVideoPreview();
-
-            hide("download-status");
-            enableStep(2);
-            enableStep(3);
-            enableStep(4);
+            $("download-status-text").textContent = "Downloading video...";
+            pollDownload(jobId);
 
         } catch (e) {
             showError("step1-error", "Failed to load video. Is the server running?");
@@ -477,6 +801,7 @@ const App = (() => {
             showError("audio-url-error", "Please enter a video URL for audio.");
             return;
         }
+        clearLoadedSeparateAudioPreview();
         hideError("audio-url-error");
         hide("audio-video-info");
         setLoading("validate-audio-btn", true);
@@ -507,15 +832,149 @@ const App = (() => {
         }
     }
 
+    async function loadSeparateAudioUrl() {
+        if (!jobId) {
+            showError("audio-url-error", "Load the main video first.");
+            return;
+        }
+
+        const rawUrl = $("audio-url-input").value.trim();
+        if (!rawUrl) {
+            showError("audio-url-error", "Please enter a video URL for audio.");
+            return;
+        }
+
+        if (!audioValidated || audioUrl !== rawUrl) {
+            await validateAudioUrl();
+            if (!audioValidated) return;
+        }
+
+        hideError("audio-url-error");
+        setLoading("load-audio-url-btn", true);
+        try {
+            const data = await api(`/api/load-separate-audio/${jobId}`, {
+                method: "POST",
+                body: JSON.stringify({
+                    source_type: "url",
+                    audio_url: audioUrl,
+                }),
+            });
+
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            audioDuration = Number(data.duration || 0);
+            await loadAudioSourceForPreview(`/api/serve-audio/${jobId}?t=${Date.now()}`);
+            if (useSeparateAudio) {
+                syncAudioEndToClipDuration();
+            }
+        } catch (e) {
+            clearLoadedSeparateAudioPreview();
+            showError("audio-url-error", e.message || "Failed to load separate audio URL.");
+        } finally {
+            setLoading("load-audio-url-btn", false);
+        }
+    }
+
+    async function loadSeparateAudioFile() {
+        if (!jobId) {
+            showError("audio-url-error", "Load the main video first.");
+            return;
+        }
+        if (!separateAudioFile) {
+            showError("audio-url-error", "Please choose a local audio file first.");
+            return;
+        }
+
+        hideError("audio-url-error");
+        setLoading("load-audio-file-btn", true);
+
+        try {
+            const formData = new FormData();
+            formData.append("source_type", "file");
+            formData.append("audio_file", separateAudioFile);
+
+            const resp = await fetch(`/api/load-separate-audio/${jobId}`, {
+                method: "POST",
+                body: formData,
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.error) {
+                throw new Error(data.error || "Failed to load local audio file.");
+            }
+
+            audioDuration = Number(data.duration || 0);
+            await loadAudioSourceForPreview(`/api/serve-audio/${jobId}?t=${Date.now()}`);
+            if (useSeparateAudio) {
+                syncAudioEndToClipDuration();
+            }
+        } catch (e) {
+            clearLoadedSeparateAudioPreview();
+            showError("audio-url-error", e.message || "Failed to load local audio file.");
+        } finally {
+            setLoading("load-audio-file-btn", false);
+        }
+    }
+
     // ── Toggle Handlers ──────────────────────────────────────────
+
+    function setAudioSourceType(type) {
+        audioSourceType = type;
+
+        $("audio-source-url-btn").classList.toggle("active", type === "url");
+        $("audio-source-file-btn").classList.toggle("active", type === "file");
+        $("audio-url-section").classList.toggle("hidden", type !== "url");
+        $("audio-file-section").classList.toggle("hidden", type !== "file");
+
+        hideError("audio-url-error");
+        clearLoadedSeparateAudioPreview();
+    }
+
+    function onAudioFileSelect(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const isAudio = file.type.startsWith("audio/");
+        const isVideo = file.type.startsWith("video/");
+        if (!isAudio && !isVideo) {
+            showError("audio-url-error", "Please select an audio or video file.");
+            separateAudioFile = null;
+            hide("audio-file-info");
+            clearLoadedSeparateAudioPreview();
+            return;
+        }
+
+        separateAudioFile = file;
+        $("audio-file-name").textContent = file.name;
+        show("audio-file-info");
+        hideError("audio-url-error");
+        clearLoadedSeparateAudioPreview();
+    }
 
     function onAudioToggle(e) {
         useSeparateAudio = e.target.checked;
         if (useSeparateAudio) {
             show("audio-source-section");
+            setAudioSourceType(audioSourceType);
+            if (!$("audio-start-input").value.trim()) {
+                $("audio-start-input").value = "0:00";
+            }
+            syncAudioEndToClipDuration();
+            updatePreviewAudioRouting();
+            syncSeparateAudioWithVideo(true);
         } else {
             hide("audio-source-section");
             audioValidated = false;
+            audioUrl = "";
+            audioDuration = 0;
+            separateAudioFile = null;
+            $("audio-url-input").value = "";
+            $("audio-file-input").value = "";
+            hide("audio-video-info");
+            hide("audio-file-info");
+            hideError("audio-url-error");
+            clearLoadedSeparateAudioPreview();
         }
     }
 
@@ -523,24 +982,40 @@ const App = (() => {
         useStaticImage = e.target.checked;
         if (useStaticImage) {
             show("static-image-section");
+            if (jobId && staticImagePreviewUrl) {
+                loadImagePreview(staticImagePreviewUrl);
+            }
         } else {
             hide("static-image-section");
-            hide("image-preview-container");
-            staticImageFile = null;
+            if (jobId) {
+                loadVideoPreview();
+            }
         }
     }
 
     function onStaticImageSelect(e) {
         const file = e.target.files[0];
-        if (file) {
-            staticImageFile = file;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                $("static-image-preview").src = ev.target.result;
-                show("image-preview-container");
-            };
-            reader.readAsDataURL(file);
+        if (!file) return;
+
+        if (!file.type.startsWith("image/")) {
+            showError("step2-error", "Please select an image file for static image mode.");
+            return;
         }
+
+        staticImageFile = file;
+        hideError("step2-error");
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            staticImagePreviewUrl = ev.target.result;
+            $("static-image-preview").src = staticImagePreviewUrl;
+            show("image-preview-container");
+
+            if (useStaticImage && jobId) {
+                loadImagePreview(staticImagePreviewUrl);
+            }
+        };
+        reader.readAsDataURL(file);
     }
 
     // ── Source Type Toggle ──────────────────────────────────────
@@ -623,6 +1098,8 @@ const App = (() => {
     }
 
     async function uploadLocalVideo(file) {
+        lockExportForCurrentWorkflow();
+        clearWorkflowErrors();
         setLoading("source-file-btn", true);
         $("download-status-text").textContent = "Uploading video...";
         show("download-status");
@@ -641,12 +1118,13 @@ const App = (() => {
             if (data.error) {
                 showError("step1-error", data.error);
                 hide("download-status");
-                setLoading("download-btn", false);
+                setLoading("source-file-btn", false);
                 return;
             }
 
             jobId = data.job_id;
             videoDuration = data.duration || 0;
+            clearLoadedSeparateAudioPreview();
             $("video-title").textContent = file.name;
             $("video-duration").textContent = formatDuration(videoDuration);
             show("video-info");
@@ -659,7 +1137,7 @@ const App = (() => {
         } catch (e) {
             showError("step2-error", "Download failed: " + e.message);
             hide("download-status");
-            setLoading("download-btn", false);
+            setLoading("source-file-btn", false);
         }
     }
 
@@ -675,7 +1153,8 @@ const App = (() => {
                     pollTimer = null;
                     showError("step2-error", data.error || "Download failed");
                     hide("download-status");
-                    setLoading("download-btn", false);
+                    setLoading("source-file-btn", false);
+                    setLoading("validate-btn", false);
                     return;
                 }
 
@@ -707,6 +1186,7 @@ const App = (() => {
             // Load video preview
             loadVideoPreview();
 
+            clearWorkflowErrors();
             hide("download-status");
             enableStep(2);
             enableStep(3);
@@ -717,23 +1197,94 @@ const App = (() => {
             hide("download-status");
         } finally {
             setLoading("source-file-btn", false);
+            setLoading("validate-btn", false);
         }
     }
 
     // ── Video Preview ────────────────────────────────────────────
 
-    function loadVideoPreview() {
+    function setPreviewControlVisibility(visible) {
+        const controls = $("preview-controls");
+        const volume = $("preview-volume-control");
+        if (controls) controls.classList.toggle("hidden", !visible);
+        if (volume) volume.classList.toggle("hidden", !visible);
+    }
+
+    function loadImagePreview(imageUrl) {
         if (!cropPreview) {
             cropPreview = new CropPreview();
         }
+        if (cropPreview.setResizeLock) cropPreview.setResizeLock(false);
+        if (!imageUrl) return;
+
+        // Reset previous media state
+        cropPreview.reset();
+        show("video-sidebar");
+        setPreviewControlVisibility(true);
+
+        cropPreview.initializeImage(imageUrl);
+
+        // In static image mode, keep crop image visible but use hidden crop-video for audio preview.
+        const audioPreview = $("crop-video");
+        audioPreview.loop = false;
+        const playBtn = $("preview-play-btn");
+        if (playBtn) playBtn.textContent = "▶ Play Audio";
+
+        audioPreview.onerror = () => {
+            console.error("Audio preview load error");
+            showError("step2-error", "Failed to load audio preview.");
+        };
+
+        audioPreview.src = `/api/serve-clip/${jobId}?t=${Date.now()}`;
+        audioPreview.onloadedmetadata = () => {
+            onVolumeChange();
+            updatePreviewAudioRouting();
+            // Use actual source duration when available.
+            const dur = audioPreview.duration || (videoInfo && Number(videoInfo.duration)) || videoDuration || clipDuration || 0;
+            initTrimSliders(Math.max(0, dur));
+            audioPreview.currentTime = trimStart;
+            audioPreview.pause();
+            syncSeparateAudioWithVideo(true);
+            if (playBtn) playBtn.textContent = "▶ Play Audio";
+        };
+
+        audioPreview.ontimeupdate = () => {
+            if (!audioPreview.paused && audioPreview.currentTime >= trimEnd) {
+                audioPreview.currentTime = trimStart;
+            }
+            syncSeparateAudioWithVideo(false);
+        };
+        audioPreview.onended = () => {
+            audioPreview.currentTime = trimStart;
+            syncSeparateAudioWithVideo(true);
+            audioPreview.play().catch(() => { });
+        };
+
+        // Immediate fallback duration so sliders are usable before metadata resolves.
+        const fallbackDur = (videoInfo && Number(videoInfo.duration)) || videoDuration || clipDuration || 0;
+        initTrimSliders(Math.max(0, fallbackDur));
+    }
+
+    function loadVideoPreview() {
+        if (useStaticImage && staticImagePreviewUrl) {
+            loadImagePreview(staticImagePreviewUrl);
+            return;
+        }
+
+        if (!cropPreview) {
+            cropPreview = new CropPreview();
+        }
+        if (cropPreview.setResizeLock) cropPreview.setResizeLock(false);
 
         // Reset previous state
         cropPreview.reset();
 
         // Show the video sidebar
         show("video-sidebar");
+        setPreviewControlVisibility(true);
 
         const video = document.getElementById("crop-video");
+        video.loop = false;
 
         video.onerror = () => {
             console.error("Video load error");
@@ -744,11 +1295,15 @@ const App = (() => {
         video.src = `/api/serve-clip/${jobId}?t=${Date.now()}`;
 
         video.onloadedmetadata = () => {
+            // Re-apply slider volume to the newly loaded media.
+            onVolumeChange();
+            updatePreviewAudioRouting();
             cropPreview.initialize(video.videoWidth, video.videoHeight);
 
             // Initialize trim sliders
             const dur = video.duration;
             initTrimSliders(dur);
+            syncSeparateAudioWithVideo(true);
         };
 
         // Handle looping within trim region
@@ -756,6 +1311,12 @@ const App = (() => {
             if (!video.paused && video.currentTime >= trimEnd) {
                 video.currentTime = trimStart;
             }
+            syncSeparateAudioWithVideo(false);
+        };
+        video.onended = () => {
+            video.currentTime = trimStart;
+            syncSeparateAudioWithVideo(true);
+            video.play().catch(() => { });
         };
     }
 
@@ -767,14 +1328,27 @@ const App = (() => {
             return;
         }
 
+        if (useStaticImage && !staticImageFile) {
+            showError("step4-error", "Please select a static image file.");
+            return;
+        }
+        if (useSeparateAudio && !separateAudioPreviewLoaded) {
+            showError("step4-error", "Load the separate audio source first (Load URL / Load File).");
+            return;
+        }
+
         hideError("step4-error");
         const cropParams = cropPreview.getCropParams();
+        if (cropPreview.setResizeLock) cropPreview.setResizeLock(true);
 
         setLoading("process-btn", true);
         show("progress-section");
-        hide("download-section");
+        requestAnimationFrame(() => cropPreview?.realignLockedOverlay?.());
+        setTimeout(() => cropPreview?.realignLockedOverlay?.(), 200);
+        lockExportForCurrentWorkflow();
 
         try {
+            const settings = getSettings();
             const formData = new FormData();
             formData.append("job_id", jobId);
             formData.append("crop", JSON.stringify(cropParams));
@@ -782,7 +1356,29 @@ const App = (() => {
             formData.append("trim_end", trimEnd);
             formData.append("use_separate_audio", useSeparateAudio);
             formData.append("use_static_image", useStaticImage);
-            formData.append("settings", JSON.stringify(getSettings()));
+            formData.append("audio_fade_mode", $("audio-fade-mode")?.value || "none");
+            formData.append("audio_fade_duration", settings.audioFadeDuration || "0.35");
+            formData.append("settings", JSON.stringify(settings));
+
+            if (useSeparateAudio) {
+                const audioStart = $("audio-start-input").value.trim();
+                const audioEnd = $("audio-end-input").value.trim();
+                formData.append("audio_source_type", audioSourceType);
+                formData.append("audio_start", audioStart);
+                formData.append("audio_end", audioEnd);
+
+                if (audioSourceType === "url") {
+                    if (!audioValidated || !audioUrl) {
+                        throw new Error("Please validate the separate audio URL first.");
+                    }
+                    formData.append("audio_url", audioUrl);
+                } else {
+                    if (!separateAudioFile) {
+                        throw new Error("Please select a local audio file.");
+                    }
+                    formData.append("separate_audio_file", separateAudioFile);
+                }
+            }
 
             if (useStaticImage && staticImageFile) {
                 formData.append("static_image", staticImageFile);
@@ -802,6 +1398,7 @@ const App = (() => {
             pollProgress();
         } catch (e) {
             showError("step4-error", "Failed to start processing: " + e.message);
+            if (cropPreview?.setResizeLock) cropPreview.setResizeLock(false);
             setLoading("process-btn", false);
         }
     }
@@ -816,8 +1413,12 @@ const App = (() => {
                 if (data.status === "complete") {
                     clearInterval(pollTimer);
                     pollTimer = null;
+                    if (cropPreview?.setResizeLock) cropPreview.setResizeLock(false);
                     $("progress-bar").style.width = "100%";
                     $("progress-text").textContent = "Done!";
+                    downloadableJobId = jobId;
+                    const exportBtn = $("export-btn");
+                    if (exportBtn) exportBtn.disabled = false;
                     show("download-section");
                     setLoading("process-btn", false);
                     return;
@@ -826,6 +1427,7 @@ const App = (() => {
                 if (data.status === "error") {
                     clearInterval(pollTimer);
                     pollTimer = null;
+                    if (cropPreview?.setResizeLock) cropPreview.setResizeLock(false);
                     showError("step4-error", data.error || "Processing failed");
                     hide("progress-section");
                     setLoading("process-btn", false);
@@ -844,6 +1446,10 @@ const App = (() => {
     }
 
     function downloadResult() {
+        if (!jobId || downloadableJobId !== jobId) {
+            showError("step4-error", "Result is not ready yet. Process this clip first.");
+            return;
+        }
         window.location.href = `/api/download-result/${jobId}`;
     }
 
@@ -858,23 +1464,12 @@ const App = (() => {
 
     // ── Settings ────────────────────────────────────────────────
 
-    function toggleSettings() {
-        const menu = $("settings-menu");
-        const btn = $("settings-btn");
-        if (menu.classList.contains("hidden")) {
-            show(menu);
-            btn.classList.add("active");
-        } else {
-            hide(menu);
-            btn.classList.remove("active");
-        }
-    }
-
     function getSettings() {
         return {
             resolution: $("setting-resolution")?.value || "720",
             bufferDuration: $("setting-buffer")?.value || "2",
-            normalizeAudio: $("setting-normalize-audio")?.checked ?? true
+            normalizeAudio: $("setting-normalize-audio")?.checked ?? true,
+            audioFadeDuration: $("setting-audio-fade-duration")?.value || "0.35",
         };
     }
 
@@ -888,33 +1483,42 @@ const App = (() => {
                 if (typeof settings.normalizeAudio === "boolean") {
                     $("setting-normalize-audio").checked = settings.normalizeAudio;
                 }
+                if (settings.audioFadeDuration) {
+                    $("setting-audio-fade-duration").value = settings.audioFadeDuration;
+                }
             }
         } catch (e) {
             // Ignore errors
         }
 
+        updateSettingsPanelLabels(getSettings());
+
         // Save on change
-        ["setting-resolution", "setting-buffer", "setting-normalize-audio"].forEach(id => {
+        ["setting-resolution", "setting-buffer", "setting-normalize-audio", "setting-audio-fade-duration"].forEach(id => {
             $(id)?.addEventListener("change", saveSettings);
         });
     }
 
     function saveSettings() {
+        const settings = getSettings();
         try {
-            localStorage.setItem("alertCreatorSettings", JSON.stringify(getSettings()));
+            localStorage.setItem("alertCreatorSettings", JSON.stringify(settings));
         } catch (e) {
             // Ignore errors
         }
+        updateSettingsPanelLabels(settings);
     }
 
     function resetSettings() {
         $("setting-resolution").value = "720";
         $("setting-buffer").value = "2";
         $("setting-normalize-audio").checked = true;
+        $("setting-audio-fade-duration").value = "0.35";
         saveSettings();
 
         // Visual feedback
-        const btn = document.querySelector(".settings-reset");
+        const btn = $("reset-settings-btn");
+        if (!btn) return;
         btn.textContent = "Reset!";
         setTimeout(() => btn.textContent = "Reset to Defaults", 1000);
     }
@@ -923,7 +1527,7 @@ const App = (() => {
         if (!confirm("Are you sure you want to quit the application?")) return;
         try {
             await api("/api/shutdown", { method: "POST" });
-            document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;background:#0f0f0f;color:#fff;font-family:sans-serif;'><h2>Application has been closed. You can close this tab.</h2></div>";
+            document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;background:#0f151d;color:#d7e0eb;font-family:sans-serif;'><h2>Application has been closed. You can close this tab.</h2></div>";
         } catch (e) {
             alert("Failed to quit app");
         }
@@ -932,12 +1536,16 @@ const App = (() => {
     return {
         validateUrl,
         validateAudioUrl,
+        loadSeparateAudioUrl,
+        loadSeparateAudioFile,
         setSourceType,
+        setAudioSourceType,
         processVideo,
         downloadResult,
-        toggleSettings,
         resetSettings,
         shutdownApp,
+        installMissingDependencies,
+        toggleSettingsPanel,
+        openSettingsPanel,
     };
 })();
-
