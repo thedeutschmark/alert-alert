@@ -10,6 +10,7 @@ import subprocess
 import threading
 import shutil
 import zipfile
+import importlib
 from functools import lru_cache
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -48,6 +49,8 @@ RUNTIME_BIN_DIR = RUNTIME_DIR / "bin"
 APP_STATE_DIR.mkdir(parents=True, exist_ok=True)
 SETTINGS_FILE = APP_STATE_DIR / "settings.json"
 DEFAULT_OUTPUT_DIR = BASE_DIR / "output"
+CAPTION_ENV_DIR = APP_STATE_DIR / "captioning-env"
+CAPTION_ENV_DLL_HANDLES = []
 
 # Ensure directories exist
 for d in [DOWNLOADS_DIR, PROCESSING_DIR, RUNTIME_BIN_DIR]:
@@ -58,6 +61,11 @@ AUTO_INSTALL_SUPPORTED = platform.system() == "Windows"
 FFMPEG_WINDOWS_URL = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 YTDLP_WINDOWS_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
 DENO_WINDOWS_URL = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+DEFAULT_APP_HOST = str(os.environ.get("ALERT_ALERT_HOST", "localhost") or "localhost").strip() or "localhost"
+try:
+    DEFAULT_APP_PORT = int(str(os.environ.get("ALERT_ALERT_PORT", "3000") or "3000").strip())
+except ValueError:
+    DEFAULT_APP_PORT = 3000
 
 
 def _load_app_settings():
@@ -297,6 +305,12 @@ YTDLP_UPDATE_STATE = {
     "last_error": None,
 }
 YTDLP_UPDATE_LOCK = threading.Lock()
+CAPTIONING_INSTALL_STATE = {
+    "status": "idle",  # idle | installing | ready | failed
+    "message": "",
+    "last_error": None,
+}
+CAPTIONING_INSTALL_LOCK = threading.Lock()
 
 
 def _set_bootstrap_state(status, message="", error=None):
@@ -311,6 +325,12 @@ def _set_ytdlp_update_state(status, message="", error=None):
     YTDLP_UPDATE_STATE["last_error"] = error
 
 
+def _set_captioning_install_state(status, message="", error=None):
+    CAPTIONING_INSTALL_STATE["status"] = status
+    CAPTIONING_INSTALL_STATE["message"] = message
+    CAPTIONING_INSTALL_STATE["last_error"] = error
+
+
 def _required_missing(results):
     required = ("ffmpeg", "ffprobe", "yt-dlp")
     return [name for name in required if not results.get(name, {}).get("installed")]
@@ -318,6 +338,7 @@ def _required_missing(results):
 
 def get_caption_dependency_status():
     """Return install status for Reel Maker captioning dependencies."""
+    ensure_captioning_import_paths()
     result = {}
 
     try:
@@ -326,8 +347,8 @@ def get_caption_dependency_status():
             "installed": True,
             "version": getattr(faster_whisper, "__version__", "unknown"),
         }
-    except ImportError:
-        result["faster_whisper"] = {"installed": False, "version": None}
+    except Exception as e:
+        result["faster_whisper"] = {"installed": False, "version": None, "error": str(e)}
 
     try:
         import torch
@@ -338,12 +359,13 @@ def get_caption_dependency_status():
             "cuda": cuda_available,
             "device": torch.cuda.get_device_name(0) if cuda_available else "CPU",
         }
-    except ImportError:
+    except Exception as e:
         result["torch"] = {
             "installed": False,
             "version": None,
             "cuda": False,
             "device": None,
+            "error": str(e),
         }
 
     try:
@@ -352,8 +374,8 @@ def get_caption_dependency_status():
             "installed": True,
             "version": getattr(pyannote.audio, "__version__", "unknown"),
         }
-    except ImportError:
-        result["pyannote_audio"] = {"installed": False, "version": None}
+    except Exception as e:
+        result["pyannote_audio"] = {"installed": False, "version": None, "error": str(e)}
 
     result["required_missing"] = [
         name for name in ("faster_whisper", "torch")
@@ -382,8 +404,9 @@ def _build_deps_payload(results):
     }
     payload["bootstrap"] = dict(DEPS_BOOTSTRAP_STATE)
     payload["ytdlp_update"] = dict(YTDLP_UPDATE_STATE)
-    payload["ytdlp_update_available"] = bool(results.get("yt-dlp", {}).get("installed")) or AUTO_INSTALL_SUPPORTED
+    payload["ytdlp_update_available"] = bool(results.get("yt-dlp", {}).get("installed"))
     payload["captioning"] = get_caption_dependency_status()
+    payload["captioning_install"] = dict(CAPTIONING_INSTALL_STATE)
     return payload
 
 
@@ -573,6 +596,240 @@ def update_ytdlp_one_click():
                 refresh_tool_paths()
                 return run_deps_check(force=True)
 
+
+def _get_python_for_pip():
+    """Return a Python executable suitable for pip installs.
+
+    When running as a frozen EXE, sys.executable is the EXE itself — using it
+    with -m pip would just launch another copy of the app.  Fall back to the
+    first real Python found on PATH.
+    """
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    # Frozen: look for a real Python on PATH
+    for candidate in ("python", "python3", "py"):
+        path = shutil.which(candidate)
+        if path:
+            return path
+    return None
+
+
+def _get_caption_env_python():
+    if platform.system() == "Windows":
+        return CAPTION_ENV_DIR / "Scripts" / "python.exe"
+    return CAPTION_ENV_DIR / "bin" / "python"
+
+
+def _get_caption_env_site_packages():
+    if platform.system() == "Windows":
+        return CAPTION_ENV_DIR / "Lib" / "site-packages"
+    return CAPTION_ENV_DIR / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+
+
+def ensure_captioning_import_paths():
+    """Expose managed captioning site-packages to the current process."""
+    site_packages = _get_caption_env_site_packages()
+    if not site_packages.exists():
+        return
+
+    site_packages_str = str(site_packages)
+    if site_packages_str not in sys.path:
+        sys.path.insert(0, site_packages_str)
+
+    if platform.system() == "Windows":
+        torch_lib_dir = site_packages / "torch" / "lib"
+        if torch_lib_dir.exists():
+            torch_lib_dir_str = str(torch_lib_dir)
+            if torch_lib_dir_str not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = torch_lib_dir_str + os.pathsep + os.environ.get("PATH", "")
+            if hasattr(os, "add_dll_directory"):
+                try:
+                    handle = os.add_dll_directory(torch_lib_dir_str)
+                    CAPTION_ENV_DLL_HANDLES.append(handle)
+                except OSError:
+                    pass
+
+    importlib.invalidate_caches()
+
+
+def _run_python_command(command_prefix, args, timeout=120):
+    return run_subprocess(list(command_prefix) + list(args), timeout=timeout)
+
+
+def _python_version_matches(command_prefix):
+    try:
+        result = _run_python_command(
+            command_prefix,
+            ["-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
+            timeout=20,
+        )
+        version_label = (result.stdout or "").strip()
+        expected = f"{sys.version_info.major}.{sys.version_info.minor}"
+        return result.returncode == 0 and version_label == expected
+    except Exception:
+        return False
+
+
+def _find_python_command_for_captioning():
+    """Find a Python command matching the app runtime's major/minor version."""
+    env_python = _get_caption_env_python()
+    if env_python.exists():
+        return [str(env_python)]
+
+    candidates = []
+    if not getattr(sys, "frozen", False) and sys.executable:
+        candidates.append([sys.executable])
+
+    if platform.system() == "Windows":
+        version_flag = f"-{sys.version_info.major}.{sys.version_info.minor}"
+        candidates.extend([
+            ["py", version_flag],
+            ["python"],
+            ["python3"],
+            ["py"],
+        ])
+    else:
+        candidates.extend([
+            ["python3"],
+            ["python"],
+        ])
+
+    seen = set()
+    for candidate in candidates:
+        key = tuple(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _python_version_matches(candidate):
+            return candidate
+    return None
+
+
+def _ensure_captioning_env():
+    """Create a managed virtualenv for captioning dependencies and return its python executable."""
+    env_python = _get_caption_env_python()
+    if env_python.exists():
+        return [str(env_python)]
+
+    python_cmd = _find_python_command_for_captioning()
+    if not python_cmd:
+        expected = f"{sys.version_info.major}.{sys.version_info.minor}"
+        raise RuntimeError(
+            f"Python {expected} is required for captioning install. "
+            f"Install Python {expected} and retry."
+        )
+
+    CAPTION_ENV_DIR.mkdir(parents=True, exist_ok=True)
+    create_result = _run_python_command(
+        python_cmd,
+        ["-m", "venv", str(CAPTION_ENV_DIR)],
+        timeout=300,
+    )
+    if create_result.returncode != 0 or not env_python.exists():
+        error = (create_result.stderr or create_result.stdout or "Failed to create captioning environment").strip()
+        raise RuntimeError(error)
+
+    ensurepip_result = _run_python_command([str(env_python)], ["-m", "ensurepip", "--upgrade"], timeout=180)
+    if ensurepip_result.returncode != 0:
+        error = (ensurepip_result.stderr or ensurepip_result.stdout or "ensurepip failed").strip()
+        raise RuntimeError(error)
+
+    return [str(env_python)]
+
+
+def _validate_captioning_runtime(include_pyannote=False):
+    status = get_caption_dependency_status()
+    required = ["faster_whisper", "torch"]
+    optional = ["pyannote_audio"] if include_pyannote else []
+    missing = [
+        name for name in required + optional
+        if not status.get(name, {}).get("installed")
+    ]
+    if missing:
+        error_lines = []
+        for name in missing:
+            detail = status.get(name, {}).get("error")
+            if detail:
+                error_lines.append(f"{name}: {detail}")
+        detail_text = " ".join(error_lines).strip()
+        if detail_text:
+            raise RuntimeError(detail_text)
+        raise RuntimeError(f"Missing modules after install: {', '.join(missing)}")
+    return status
+
+
+def _run_captioning_install(include_pyannote=False):
+    """Worker for installing captioning packages into the managed environment."""
+    with CAPTIONING_INSTALL_LOCK:
+        try:
+            python_cmd = _ensure_captioning_env()
+            python_exe = python_cmd[0]
+
+            packages = ["faster-whisper", "torch"]
+            if include_pyannote:
+                packages.append("pyannote.audio")
+            label = " + ".join(packages)
+            _set_captioning_install_state("installing", f"Installing {label}...")
+            print(f"Captioning install: {' '.join(python_cmd)} -m pip install --upgrade --prefer-binary {' '.join(packages)}")
+
+            extra = {}
+            if platform.system() == "Windows":
+                extra["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+            bootstrap = subprocess.run(
+                [python_exe, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                **extra,
+            )
+            if bootstrap.returncode != 0:
+                error = (bootstrap.stderr or bootstrap.stdout or "pip bootstrap failed").strip()
+                print(f"Captioning bootstrap failed: {error}")
+                _set_captioning_install_state("failed", "Install failed.", error)
+                return
+
+            result = subprocess.run(
+                [python_exe, "-m", "pip", "install", "--upgrade", "--prefer-binary"] + packages,
+                capture_output=True,
+                text=True,
+                timeout=1800,
+                **extra,
+            )
+            if result.returncode != 0:
+                error = (result.stderr or result.stdout or "pip install failed").strip()
+                print(f"Captioning install failed: {error}")
+                _set_captioning_install_state("failed", "Install failed.", error)
+            else:
+                ensure_captioning_import_paths()
+                _validate_captioning_runtime(include_pyannote=include_pyannote)
+                _set_captioning_install_state("ready", f"Installed: {label}. Captioning is ready.")
+                print(f"Captioning install succeeded: {label}")
+        except subprocess.TimeoutExpired:
+            _set_captioning_install_state("failed", "Install timed out.", "pip install exceeded 30-minute timeout")
+        except Exception as e:
+            _set_captioning_install_state("failed", "Install failed.", str(e))
+
+
+def install_captioning_deps_one_click(include_pyannote=False):
+    """Start captioning dependency install if one is not already running."""
+    if CAPTIONING_INSTALL_STATE.get("status") == "installing":
+        return False
+
+    packages = ["faster-whisper", "torch"]
+    if include_pyannote:
+        packages.append("pyannote.audio")
+    label = " + ".join(packages)
+    _set_captioning_install_state("installing", f"Installing {label}...")
+    thread = threading.Thread(
+        target=_run_captioning_install,
+        kwargs={"include_pyannote": include_pyannote},
+        daemon=True,
+    )
+    thread.start()
+    return True
+
+
 @app.route("/api/check-deps")
 def check_deps():
     # If the cache is already populated (should be from startup), return it.
@@ -590,6 +847,15 @@ def bootstrap_deps():
 @app.route("/api/update-ytdlp", methods=["POST"])
 def update_ytdlp():
     results = update_ytdlp_one_click()
+    return jsonify(_build_deps_payload(results))
+
+
+@app.route("/api/install-captioning-deps", methods=["POST"])
+def install_captioning_deps_route():
+    data = request.get_json(silent=True) or {}
+    include_pyannote = bool(data.get("include_pyannote", False))
+    install_captioning_deps_one_click(include_pyannote=include_pyannote)
+    results = run_deps_check()
     return jsonify(_build_deps_payload(results))
 
 
@@ -1088,6 +1354,32 @@ def job_status(job_id):
     return jsonify(jobs[job_id])
 
 
+@app.route("/api/waveform/<job_id>")
+def get_waveform(job_id):
+    if not is_safe_job_id(job_id):
+        return jsonify({"error": "Invalid job_id"}), 400
+    job_dir = DOWNLOADS_DIR / job_id
+    files = list(job_dir.glob("clip.*"))
+    if not files:
+        return jsonify({"error": "No clip found"}), 404
+    input_file = str(files[0])
+    waveform_path = PROCESSING_DIR / f"{job_id}_waveform.png"
+    if not waveform_path.exists():
+        PROCESSING_DIR.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            FFMPEG, "-y", "-i", input_file,
+            "-filter_complex", "showwavespic=s=1200x80:colors=#56a3ff|#3a7acc",
+            "-frames:v", "1", str(waveform_path),
+        ]
+        extra = {}
+        if platform.system() == "Windows":
+            extra["creationflags"] = subprocess.CREATE_NO_WINDOW
+        result = subprocess.run(cmd, capture_output=True, timeout=30, **extra)
+        if result.returncode != 0 or not waveform_path.exists():
+            return jsonify({"error": "Waveform generation failed"}), 500
+    return send_file(str(waveform_path), mimetype="image/png")
+
+
 @app.route("/api/download-result/<job_id>")
 def download_result(job_id):
     if not is_safe_job_id(job_id):
@@ -1185,7 +1477,7 @@ def is_port_available(host, port):
             return False
 
 
-def find_available_port(host="127.0.0.1", preferred_port=5000, max_tries=25):
+def find_available_port(host=DEFAULT_APP_HOST, preferred_port=DEFAULT_APP_PORT, max_tries=25):
     if is_port_available(host, preferred_port):
         return preferred_port
 
@@ -1202,7 +1494,7 @@ def find_available_port(host="127.0.0.1", preferred_port=5000, max_tries=25):
     raise RuntimeError("Could not find an open localhost port for the app server.")
 
 
-def start_server(host="127.0.0.1", port=5000, open_browser=False):
+def start_server(host=DEFAULT_APP_HOST, port=DEFAULT_APP_PORT, open_browser=False):
     bootstrap_runtime()
     app_url = f"http://{host}:{port}"
     print("  Starting server...")
@@ -1221,4 +1513,4 @@ def start_server(host="127.0.0.1", port=5000, open_browser=False):
 
 
 if __name__ == "__main__":
-    start_server(host="127.0.0.1", port=5000, open_browser=True)
+    start_server(host=DEFAULT_APP_HOST, port=DEFAULT_APP_PORT, open_browser=True)

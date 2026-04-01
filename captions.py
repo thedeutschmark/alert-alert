@@ -7,7 +7,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from flask import request, jsonify
+from flask import request, jsonify, send_file
 
 # Lazy-loaded model references
 _whisper_models = {}
@@ -101,6 +101,8 @@ def _get_whisper_model(model_size="large-v3", cache_dir=None):
     with _whisper_lock:
         if cache_key in _whisper_models:
             return _whisper_models[cache_key]
+        from app import ensure_captioning_import_paths
+        ensure_captioning_import_paths()
         from faster_whisper import WhisperModel
         try:
             import torch
@@ -127,6 +129,8 @@ def _get_diarize_pipeline(hf_token):
     with _diarize_lock:
         if _diarize_pipeline is not None:
             return _diarize_pipeline
+        from app import ensure_captioning_import_paths
+        ensure_captioning_import_paths()
         from pyannote.audio import Pipeline
         _diarize_pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
@@ -264,6 +268,7 @@ def register_caption_routes(app):
         FFMPEG,
         get_env,
         run_ffmpeg,
+        run_subprocess,
     )
     from reel import load_reel_project, save_reel_project
 
@@ -433,7 +438,7 @@ def register_caption_routes(app):
                 module = str(e).replace("No module named ", "").strip("'")
                 jobs[job_id] = {
                     "status": "error",
-                    "error": f"Missing dependency: {module}. Install with: pip install {module}",
+                    "error": f"Missing dependency: {module}. Open Dependency Setup and run the 1-click caption install, then retry.",
                 }
             except Exception as e:
                 jobs[job_id] = {"status": "error", "error": str(e)}
@@ -498,3 +503,168 @@ def register_caption_routes(app):
         save_reel_project(project_id)
 
         return jsonify({"status": "saved"})
+
+    @app.route("/api/reel/captions/<project_id>/vtt")
+    def reel_captions_vtt(project_id):
+        """Return captions as a WebVTT file for live preview in the <video> element."""
+        project = load_reel_project(project_id)
+        if not project or not project.get("captions"):
+            return ("WEBVTT\n\n", 200, {"Content-Type": "text/vtt; charset=utf-8"})
+
+        words = project["captions"]["words"]
+        speakers = project.get("speakers", {})
+        style = normalize_caption_style(project.get("caption_style"))
+        max_words = style.get("max_words", 6)
+        all_caps = bool(style.get("all_caps", False))
+        lines = group_words_into_lines(words, max_words=max_words)
+
+        def _vtt_time(seconds):
+            seconds = float(seconds or 0)
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = int(seconds % 60)
+            ms = int(round((seconds % 1) * 1000))
+            return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+        # Build WebVTT STYLE block with per-speaker colors
+        style_rules = []
+        for speaker_id, speaker_data in speakers.items():
+            color = speaker_data.get("color", "#ffffff")
+            name = speaker_data.get("name", speaker_id).replace('"', "'")
+            style_rules.append(f'::cue(v[voice="{name}"]) {{ color: {color}; }}')
+
+        cues = ["WEBVTT\n"]
+        if style_rules:
+            cues.append("\nSTYLE\n" + "\n".join(style_rules) + "\n")
+
+        for line in lines:
+            if not line.get("enabled", True):
+                continue
+            text = " ".join(w["text"] for w in line["words"])
+            if all_caps:
+                text = text.upper()
+            # Wrap in voice tag if there's speaker data for coloring
+            speaker_id = line.get("speaker", "")
+            speaker_name = speakers.get(speaker_id, {}).get("name", "").replace("<", "").replace(">", "")
+            if speaker_name:
+                text = f"<v {speaker_name}>{text}</v>"
+            cues.append(f"\n{_vtt_time(line['start'])} --> {_vtt_time(line['end'])}\n{text}\n")
+
+        return ("".join(cues), 200, {"Content-Type": "text/vtt; charset=utf-8",
+                                     "Cache-Control": "no-cache"})
+
+    @app.route("/api/reel/captions/<project_id>/srt")
+    def reel_captions_srt(project_id):
+        """Return captions as SRT for download / use in other editors."""
+        project = load_reel_project(project_id)
+        if not project or not project.get("captions"):
+            return ("", 200, {"Content-Type": "text/plain; charset=utf-8"})
+
+        words = project["captions"]["words"]
+        style = normalize_caption_style(project.get("caption_style"))
+        max_words = style.get("max_words", 6)
+        all_caps = bool(style.get("all_caps", False))
+        lines = group_words_into_lines(words, max_words=max_words)
+
+        def _srt_time(seconds):
+            seconds = float(seconds or 0)
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            s = int(seconds % 60)
+            ms = int(round((seconds % 1) * 1000))
+            return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+        cues = []
+        idx = 1
+        for line in lines:
+            if not line.get("enabled", True):
+                continue
+            text = " ".join(w["text"] for w in line["words"])
+            if all_caps:
+                text = text.upper()
+            cues.append(f"{idx}\n{_srt_time(line['start'])} --> {_srt_time(line['end'])}\n{text}\n")
+            idx += 1
+
+        srt_content = "\n".join(cues)
+        vod_title = str(project.get("vod_title") or project_id)
+        safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in vod_title).strip()[:48] or project_id
+        return (srt_content, 200, {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Content-Disposition": f"attachment; filename=\"{safe_title}.srt\"",
+        })
+
+    @app.route("/api/reel/captions/<project_id>/auto-sync", methods=["POST"])
+    def reel_captions_auto_sync(project_id):
+        """Detect first voice activity in concat video and suggest a time shift vs first caption."""
+        import re as _re
+
+        project = load_reel_project(project_id)
+        if not project or not project.get("captions"):
+            return jsonify({"error": "No captions available"}), 404
+
+        concat_file = project.get("concat_file")
+        if not concat_file or not Path(concat_file).exists():
+            return jsonify({"error": "No concat file — download and stitch clips first"}), 400
+
+        # Find first enabled caption start time
+        words = project["captions"]["words"]
+        enabled_words = [w for w in words if w.get("enabled", True)]
+        if not enabled_words:
+            return jsonify({"error": "No enabled captions to sync"}), 400
+        first_caption = float(enabled_words[0].get("start", 0))
+
+        # Run silencedetect to find first speech region
+        try:
+            r = run_subprocess(
+                [FFMPEG, "-i", concat_file,
+                 "-af", "silencedetect=noise=-35dB:d=0.3",
+                 "-f", "null", "-"],
+                timeout=120,
+            )
+            output = r.stderr or ""
+            silence_ends = [float(m) for m in _re.findall(r"silence_end: ([0-9.]+)", output)]
+        except Exception as e:
+            return jsonify({"error": f"Detection failed: {e}"}), 500
+
+        if not silence_ends:
+            return jsonify({"suggested_shift": 0, "first_speech": 0, "first_caption": round(first_caption, 3),
+                            "note": "No silence detected — audio starts immediately. No shift needed."})
+
+        first_speech = silence_ends[0]  # End of first silence = start of first speech
+        suggested_shift = round(first_speech - first_caption, 3)
+
+        return jsonify({
+            "suggested_shift": suggested_shift,
+            "first_speech": round(first_speech, 3),
+            "first_caption": round(first_caption, 3),
+            "note": f"First speech detected at {first_speech:.2f}s, first caption at {first_caption:.2f}s → shift {suggested_shift:+.2f}s",
+        })
+
+    @app.route("/api/reel/captions/<project_id>/ass")
+    def reel_captions_ass(project_id):
+        """Serve the generated ASS subtitle file for download."""
+        project = load_reel_project(project_id)
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+        project_dir = DOWNLOADS_DIR / f"reel_{project_id}"
+        ass_path = project_dir / "captions.ass"
+        if not ass_path.exists():
+            # Regenerate if captions exist but file was deleted
+            if project.get("captions") and project.get("speakers"):
+                ass_content = generate_ass_subtitles(
+                    project["captions"]["words"],
+                    project["speakers"],
+                    style=project.get("caption_style"),
+                )
+                with open(str(ass_path), "w", encoding="utf-8") as f:
+                    f.write(ass_content)
+            else:
+                return jsonify({"error": "No ASS file — transcribe first"}), 404
+        vod_title = str(project.get("vod_title") or project_id)
+        safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in vod_title).strip()[:48] or project_id
+        return send_file(
+            str(ass_path),
+            mimetype="text/plain; charset=utf-8",
+            as_attachment=True,
+            download_name=f"{safe_title}.ass",
+        )

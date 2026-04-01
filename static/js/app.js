@@ -17,6 +17,87 @@ const App = (() => {
     let dependencyInstallAttempted = false;
     let dependencyInstallInFlight = false;
     let dependencyUpdateInFlight = false;
+    let captioningInstallInFlight = false;
+    let lastDeps = null;
+    let onboardingFlow = null;
+    let onboardingStep = 0;
+
+    const ONBOARDING_FLOWS = {
+        alert: [
+            {
+                icon: "🎬",
+                title: "Welcome to Alert! Alert!",
+                body: "Create punchy video clips from any URL in seconds — ready for your stream overlay or content feed.",
+                features: ["YouTube, Twitch, TikTok & more", "Trim, crop, and add sound effects", "Export ready for OBS or your stream deck"],
+            },
+            {
+                icon: "🔧",
+                title: "Install required tools",
+                body: "The app needs FFmpeg and yt-dlp to download and process video. Hit Install and it handles everything automatically.",
+                isRuntimeStep: true,
+            },
+            {
+                icon: "🔗",
+                title: "Paste any video URL",
+                body: "Drop a link into the URL bar and click Load Video. Or switch to Local File and drag in a clip.",
+                features: ["Supports most major platforms", "No full download — fetches only what you need", "Preview loads instantly in the sidebar"],
+            },
+            {
+                icon: "✂️",
+                title: "Trim to your moment",
+                body: "Drag the timeline handles to set your start and end points. Scrub to preview frame by frame.",
+                features: ["Frame-accurate in/out points", "Real-time preview as you scrub", "Optional freeze-frame at the end"],
+            },
+            {
+                icon: "🚀",
+                title: "Export and you're done",
+                body: "Click Process to render your clip. It lands in your output folder, ready to drop into OBS.",
+                features: ["MP4 output ready for streaming overlays", "Output folder set in Dependency Setup", "Change format and quality in settings"],
+                isLast: true,
+                doneLabel: "Start Creating",
+            },
+        ],
+        reel: [
+            {
+                icon: "🎥",
+                title: "Welcome to Video Editor",
+                body: "Cut videos into polished exports with timeline clips, captions, and presets for the most common social formats.",
+                features: ["Pull clips from any video URL", "Auto-generated burned-in captions", "Export for Shorts, square posts, feeds, and landscape video"],
+            },
+            {
+                icon: "🔧",
+                title: "Install required tools",
+                body: "The app needs FFmpeg and yt-dlp to download and process video. Hit Install and it handles everything automatically.",
+                isRuntimeStep: true,
+            },
+            {
+                icon: "📝",
+                title: "Set up auto-captions",
+                body: "Captions need two Python packages in the same environment as the app. Install them here or skip for now.",
+                isDepsStep: true,
+            },
+            {
+                icon: "🔗",
+                title: "Paste your video URL",
+                body: "Drop in your source link. The editor loads the video, lets you mark clips, and keeps the project autosaved locally.",
+                features: ["YouTube, Twitch, TikTok and more", "Or drag in a local video file", "Detects duration and resolution automatically when available"],
+            },
+            {
+                icon: "✂️",
+                title: "Pick your moments",
+                body: "Set in and out timestamps for each clip. Stack multiple segments into one finished video.",
+                features: ["Timeline scrubber for precision", "Multiple clips in one export", "Pick from the most common delivery formats"],
+            },
+            {
+                icon: "🚀",
+                title: "You're all set",
+                body: "Export an MP4 in the format you need, with captions burned in if you want them.",
+                features: ["Shorts/Reels, square, 4:5, and 16:9 output", "Speaker diarization (optional)", "Captions can always be added later"],
+                isLast: true,
+                doneLabel: "Start Editing",
+            },
+        ],
+    };
     let dependencyDropdownCloseHandlersBound = false;
     let dependencyBannerTimer = null;
     let storageConfig = null;
@@ -542,9 +623,11 @@ const App = (() => {
     }
 
     function renderDependencyStatus(deps) {
+        lastDeps = deps;
         const missing = [];
         const instructions = [];
         const captioning = deps.captioning || {};
+        const captionInstallState = deps.captioning_install || {};
         const captionRequiredMissing = captioning.required_missing || [];
         const captionOptionalMissing = captioning.optional_missing || [];
 
@@ -622,10 +705,10 @@ const App = (() => {
         }
 
         if (captionRequiredMissing.length > 0) {
-            instructions.push("Captions: Install `faster-whisper` and `torch` in the same Python environment as the app. Example: `pip install faster-whisper torch`.");
+            instructions.push("Captions: Use the 1-click install above. It installs `faster-whisper` and `torch` into this app's managed captioning environment.");
         }
         if (captionOptionalMissing.includes("pyannote_audio")) {
-            instructions.push("Speaker labels: Install `pyannote.audio` if you want diarization, then provide a Hugging Face token in Reel Maker.");
+            instructions.push("Speaker labels: Install `pyannote.audio` with the optional 1-click button, then provide a Hugging Face token in Video Editor.");
         }
 
         if (installBtn) {
@@ -647,12 +730,31 @@ const App = (() => {
                 : "Update yt-dlp (1-click)";
         }
 
+        const captioningInstallBtn = $("install-captioning-deps-btn");
+        if (captioningInstallBtn) {
+            const busy = captioningInstallInFlight || captionInstallState.status === "installing";
+            captioningInstallBtn.classList.toggle("hidden", captionRequiredMissing.length === 0);
+            captioningInstallBtn.disabled = busy;
+            if (!busy) captioningInstallBtn.textContent = "Install faster-whisper + torch (1-click)";
+        }
+
+        const pyannoteInstallBtn = $("install-pyannote-btn");
+        if (pyannoteInstallBtn) {
+            const busy = captioningInstallInFlight || captionInstallState.status === "installing";
+            const showPyannote = captionOptionalMissing.includes("pyannote_audio") && captionRequiredMissing.length === 0;
+            pyannoteInstallBtn.classList.toggle("hidden", !showPyannote);
+            pyannoteInstallBtn.disabled = busy;
+            if (!busy) pyannoteInstallBtn.textContent = "Install pyannote.audio (1-click)";
+        }
+
         const depPillValue = $("dependency-pill-value");
         if (depPillValue) {
             if (deps.bootstrap?.status === "installing") {
                 depPillValue.textContent = "Installing...";
             } else if (deps.ytdlp_update?.status === "updating") {
                 depPillValue.textContent = "Updating yt-dlp...";
+            } else if (captionInstallState.status === "installing") {
+                depPillValue.textContent = "Installing captions...";
             } else if (missing.length === 0) {
                 depPillValue.textContent = captionRequiredMissing.length > 0 ? "Captions Need Setup" : "Ready";
             } else {
@@ -674,11 +776,25 @@ const App = (() => {
             );
         } else if (captionRequiredMissing.length > 0) {
             setPanelOpen("dependency-settings-panel", true);
-            setDependencyBanner(
-                "<strong>Reel captioning needs Python packages.</strong>",
-                `<strong>How to fix:</strong><br>${instructions.join("<br>")}`,
-                false
-            );
+            if (captionInstallState.status === "installing") {
+                setDependencyBanner(
+                    "<strong>Installing captioning packages...</strong>",
+                    escapeHtml(captionInstallState.message || "This may take a few minutes. Do not close the app."),
+                    false
+                );
+            } else if (captionInstallState.status === "failed") {
+                setDependencyBanner(
+                    "<strong>Captioning install failed.</strong>",
+                    escapeHtml(captionInstallState.last_error || "Retry the 1-click install and check internet access."),
+                    true
+                );
+            } else {
+                setDependencyBanner(
+                    "<strong>Video Editor captioning needs Python packages.</strong>",
+                    `<strong>How to fix:</strong><br>${instructions.join("<br>")}`,
+                    false
+                );
+            }
         } else {
             hideDependencyBanner();
         }
@@ -790,6 +906,287 @@ const App = (() => {
         }
     }
 
+    async function waitForCaptioningInstall(timeoutMs = 30 * 60 * 1000) {
+        const startedAt = Date.now();
+        let deps = await api("/api/check-deps");
+        while ((deps?.captioning_install?.status || "idle") === "installing") {
+            if ((Date.now() - startedAt) > timeoutMs) {
+                throw new Error("Captioning install timed out.");
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            deps = await api("/api/check-deps");
+        }
+        return deps;
+    }
+
+    async function installCaptioningDeps(includePyannote = false) {
+        if (captioningInstallInFlight) return;
+        captioningInstallInFlight = true;
+
+        const btn = includePyannote ? $("install-pyannote-btn") : $("install-captioning-deps-btn");
+        const label = includePyannote ? "pyannote.audio" : "faster-whisper + torch";
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = `Installing ${label}...`;
+        }
+
+        setDependencyBanner(
+            `<strong>Installing ${label}...</strong>`,
+            "This may take a few minutes. Do not close the app.",
+            false
+        );
+
+        try {
+            let deps = await api("/api/install-captioning-deps", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ include_pyannote: includePyannote }),
+            });
+            renderDependencyStatus(deps);
+
+            if ((deps?.captioning_install?.status || "idle") === "installing") {
+                deps = await waitForCaptioningInstall();
+                renderDependencyStatus(deps);
+            }
+
+            const installState = deps?.captioning_install || {};
+            if (installState.status === "failed") {
+                setDependencyBanner(
+                    `<strong>${label} install failed.</strong>`,
+                    escapeHtml(installState.last_error || "Check internet access and retry."),
+                    true
+                );
+            } else {
+                setDependencyBanner(
+                    `<strong>${label} installed.</strong>`,
+                    escapeHtml(installState.message || "Captioning is ready."),
+                    false,
+                    8000
+                );
+            }
+        } catch (e) {
+            setDependencyBanner(
+                `<strong>${label} install failed.</strong>`,
+                "Check your internet connection and try again.",
+                true
+            );
+        } finally {
+            captioningInstallInFlight = false;
+            if (btn && !btn.classList.contains("hidden")) {
+                btn.disabled = false;
+                btn.textContent = includePyannote
+                    ? "Install pyannote.audio (1-click)"
+                    : "Install faster-whisper + torch (1-click)";
+            }
+        }
+    }
+
+    // ── Onboarding ───────────────────────────────────────────────
+
+    function showOnboarding(flow) {
+        onboardingFlow = flow;
+        onboardingStep = 0;
+        renderOnboardingStep();
+        const overlay = $("onboarding-overlay");
+        if (overlay) overlay.classList.remove("hidden");
+    }
+
+    function skipOnboarding() {
+        const overlay = $("onboarding-overlay");
+        if (overlay) overlay.classList.add("hidden");
+        markOnboardingDone(onboardingFlow);
+        onboardingFlow = null;
+    }
+
+    function markOnboardingDone(flow) {
+        if (flow) localStorage.setItem(`onboarding_${flow}_done`, "1");
+    }
+
+    function onboardingNext() {
+        const flow = ONBOARDING_FLOWS[onboardingFlow];
+        if (!flow) return;
+        const step = flow[onboardingStep];
+        if (step && step.isLast) {
+            markOnboardingDone(onboardingFlow);
+            const overlay = $("onboarding-overlay");
+            if (overlay) overlay.classList.add("hidden");
+            onboardingFlow = null;
+            return;
+        }
+        onboardingStep = Math.min(onboardingStep + 1, flow.length - 1);
+        renderOnboardingStep();
+    }
+
+    function onboardingBack() {
+        if (onboardingStep > 0) {
+            onboardingStep--;
+            renderOnboardingStep();
+        }
+    }
+
+    function restartOnboarding() {
+        const isReel = $("mode-reel-btn")?.classList.contains("active");
+        const mode = isReel ? "reel" : "alert";
+        setPanelOpen("dependency-settings-panel", false);
+        showOnboarding(mode);
+    }
+
+    function checkOnboardingForMode(mode) {
+        if (!localStorage.getItem(`onboarding_${mode}_done`)) {
+            showOnboarding(mode);
+        }
+    }
+
+    function renderOnboardingStep() {
+        const flow = ONBOARDING_FLOWS[onboardingFlow];
+        if (!flow) return;
+        const step = flow[onboardingStep];
+        const total = flow.length;
+        const current = onboardingStep + 1;
+
+        const progressFill = $("onboarding-progress-fill");
+        if (progressFill) progressFill.style.width = `${(current / total) * 100}%`;
+
+        const stepLabel = $("onboarding-step-label");
+        if (stepLabel) stepLabel.textContent = `Step ${current} of ${total}`;
+
+        const icon = $("onboarding-icon");
+        if (icon) icon.textContent = step.icon;
+
+        const title = $("onboarding-title");
+        if (title) title.textContent = step.title;
+
+        const body = $("onboarding-body");
+        if (body) body.textContent = step.body;
+
+        const contentArea = $("onboarding-content-area");
+        if (contentArea) {
+            if (step.isRuntimeStep) {
+                contentArea.innerHTML = buildOnboardingRuntimeHtml();
+            } else if (step.isDepsStep) {
+                contentArea.innerHTML = buildOnboardingDepsHtml();
+            } else if (step.features) {
+                contentArea.innerHTML = `<div class="onboarding-features">${
+                    step.features.map(f => `<div class="onboarding-feature"><div class="onboarding-feature-dot"></div><span>${escapeHtml(f)}</span></div>`).join("")
+                }</div>`;
+            } else {
+                contentArea.innerHTML = "";
+            }
+        }
+
+        const backBtn = $("onboarding-back-btn");
+        if (backBtn) backBtn.classList.toggle("hidden", onboardingStep === 0);
+
+        const nextBtn = $("onboarding-next-btn");
+        if (nextBtn) nextBtn.textContent = step.isLast ? (step.doneLabel || "Done") : "Next →";
+    }
+
+    function buildOnboardingRuntimeHtml() {
+        const ffmpegOk = lastDeps?.ffmpeg?.installed && lastDeps?.ffprobe?.installed;
+        const ytdlpOk  = !!lastDeps?.["yt-dlp"]?.installed;
+        const allOk    = ffmpegOk && ytdlpOk;
+        const busy     = dependencyInstallInFlight || lastDeps?.bootstrap?.status === "installing";
+
+        const rows = [
+            { name: "FFmpeg / ffprobe", installed: ffmpegOk, label: ffmpegOk ? "✓ Installed" : "✗ Missing" },
+            { name: "yt-dlp",           installed: ytdlpOk,  label: ytdlpOk  ? "✓ Installed" : "✗ Missing" },
+        ];
+
+        const rowsHtml = rows.map(r => `
+            <div class="onboarding-dep-row">
+                <span class="onboarding-dep-name">${escapeHtml(r.name)}</span>
+                <span class="onboarding-dep-status ${r.installed ? "installed" : "missing"}">${escapeHtml(r.label)}</span>
+            </div>`).join("");
+
+        const installBtn = !allOk ? `
+            <button class="onboarding-install-btn" onclick="App.onboardingInstallRuntime()" ${busy ? "disabled" : ""}>
+                ${busy ? "Installing..." : "Install Now (1-click, no admin required)"}
+            </button>` : "";
+
+        const note = allOk
+            ? `<p class="onboarding-skip-note success">✓ All required tools installed — ready to go</p>`
+            : `<p class="onboarding-skip-note">Downloads to your local app folder, no admin needed</p>`;
+
+        return `<div class="onboarding-deps-box">${rowsHtml}</div>${installBtn}${note}`;
+    }
+
+    async function onboardingInstallRuntime() {
+        dependencyInstallInFlight = true;
+        renderOnboardingStep();
+        try {
+            const deps = await api("/api/bootstrap-deps", { method: "POST" });
+            lastDeps = deps;
+            renderDependencyStatus(deps);
+        } catch (_) {}
+        dependencyInstallInFlight = false;
+        renderOnboardingStep();
+    }
+
+    function buildOnboardingDepsHtml() {
+        const captioning = lastDeps?.captioning || {};
+        const installState = lastDeps?.captioning_install || {};
+        const fwInstalled = !!captioning.faster_whisper?.installed;
+        const torchInstalled = !!captioning.torch?.installed;
+        const pyannoteInstalled = !!captioning.pyannote_audio?.installed;
+        const bothRequired = fwInstalled && torchInstalled;
+        const busy = captioningInstallInFlight || installState.status === "installing";
+
+        const rows = [
+            {
+                name: "faster-whisper",
+                installed: fwInstalled,
+                label: fwInstalled ? `✓ ${captioning.faster_whisper?.version || "installed"}` : "✗ Not installed",
+            },
+            {
+                name: "torch",
+                installed: torchInstalled,
+                label: torchInstalled ? `✓ ${captioning.torch?.cuda ? "CUDA" : "CPU"}` : "✗ Not installed",
+            },
+            {
+                name: "pyannote.audio",
+                installed: pyannoteInstalled,
+                label: pyannoteInstalled ? `✓ ${captioning.pyannote_audio?.version || "installed"}` : "⚠ Optional",
+            },
+        ];
+
+        const rowsHtml = rows.map(r => `
+            <div class="onboarding-dep-row">
+                <span class="onboarding-dep-name">${escapeHtml(r.name)}</span>
+                <span class="onboarding-dep-status ${r.installed ? "installed" : "missing"}">${escapeHtml(r.label)}</span>
+            </div>`).join("");
+
+        const installBtn = !bothRequired ? `
+            <button class="onboarding-install-btn" onclick="App.onboardingInstallCaptioning(false)" ${busy ? "disabled" : ""}>
+                ${busy ? "Installing..." : "Install faster-whisper + torch (1-click)"}
+            </button>` : "";
+
+        const pyannoteBtn = bothRequired && !pyannoteInstalled ? `
+            <button class="onboarding-install-btn secondary" onclick="App.onboardingInstallCaptioning(true)" ${busy ? "disabled" : ""}>
+                ${busy ? "Installing..." : "Install pyannote.audio — optional, for speaker labels"}
+            </button>` : "";
+
+        let skipNote = bothRequired
+            ? `<p class="onboarding-skip-note success">✓ Required packages installed — captions ready</p>`
+            : `<p class="onboarding-skip-note">You can skip this step and install later</p>`;
+
+        if (installState.status === "installing") {
+            skipNote = `<p class="onboarding-skip-note">${escapeHtml(installState.message || "Installing captioning packages...")}</p>`;
+        } else if (installState.status === "failed" && !bothRequired) {
+            skipNote = `<p class="onboarding-skip-note">${escapeHtml(installState.last_error || "Captioning install failed. Retry when ready.")}</p>`;
+        }
+
+        return `<div class="onboarding-deps-box">${rowsHtml}</div>${installBtn}${pyannoteBtn}${skipNote}`;
+    }
+
+    async function onboardingInstallCaptioning(includePyannote) {
+        await installCaptioningDeps(includePyannote);
+        try {
+            const deps = await api("/api/check-deps");
+            lastDeps = deps;
+        } catch (_) {}
+        renderOnboardingStep();
+    }
+
     async function allowDependencyAutoDownload() {
         setAutoDownloadConsent("allow");
         dependencyInstallAttempted = true;
@@ -803,6 +1200,122 @@ const App = (() => {
             "Install tools manually from the Dependency Setup links, or click <strong>Auto Install Missing</strong> any time to opt in later.",
             false
         );
+    }
+
+    // ── Keyboard Shortcuts ───────────────────────────────────────
+
+    function initKeyboardShortcuts() {
+        document.addEventListener("keydown", (e) => {
+            // Skip when typing in any input
+            const tag = document.activeElement?.tagName?.toLowerCase();
+            if (tag === "input" || tag === "textarea" || tag === "select") return;
+            // Skip ctrl/meta/alt combos
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+            const reelVisible = $("reel-workflow") && !$("reel-workflow").classList.contains("hidden");
+
+            if (e.key === "?" || e.key === "/") {
+                e.preventDefault();
+                toggleShortcutHelp();
+                return;
+            }
+
+            if (reelVisible) {
+                const video = $("reel-preview-video");
+                if (!video) return;
+                if (e.key === " ") {
+                    e.preventDefault();
+                    video.paused ? video.play() : video.pause();
+                } else if (e.key === "l" || e.key === "L") {
+                    e.preventDefault();
+                    video.loop = !video.loop;
+                } else if (e.key === "ArrowLeft") {
+                    e.preventDefault();
+                    video.currentTime = Math.max(0, video.currentTime - (e.shiftKey ? 5 : 1 / 30));
+                } else if (e.key === "ArrowRight") {
+                    e.preventDefault();
+                    video.currentTime = Math.min(video.duration || 0, video.currentTime + (e.shiftKey ? 5 : 1 / 30));
+                }
+            } else {
+                const video = $("crop-video");
+                if (e.key === " ") {
+                    if (!video || !video.src) return;
+                    e.preventDefault();
+                    video.paused ? video.play() : video.pause();
+                } else if (e.key === "l" || e.key === "L") {
+                    e.preventDefault();
+                    toggleLoop();
+                } else if (e.key === "i" || e.key === "I") {
+                    if (!video || !video.src) return;
+                    e.preventDefault();
+                    setTrimIn();
+                } else if (e.key === "o" || e.key === "O") {
+                    if (!video || !video.src) return;
+                    e.preventDefault();
+                    setTrimOut();
+                } else if (e.key === "ArrowLeft") {
+                    if (!video || !video.src) return;
+                    e.preventDefault();
+                    video.currentTime = Math.max(0, video.currentTime - (e.shiftKey ? 5 : 1 / 30));
+                    updatePreviewTimelineFromCurrentTime();
+                } else if (e.key === "ArrowRight") {
+                    if (!video || !video.src) return;
+                    e.preventDefault();
+                    video.currentTime = Math.min(video.duration || 0, video.currentTime + (e.shiftKey ? 5 : 1 / 30));
+                    updatePreviewTimelineFromCurrentTime();
+                }
+            }
+        });
+    }
+
+    function toggleShortcutHelp() {
+        let el = $("shortcut-help-overlay");
+        if (el) { el.remove(); return; }
+        el = document.createElement("div");
+        el.id = "shortcut-help-overlay";
+        el.className = "shortcut-help-overlay";
+        el.innerHTML = `
+            <div class="shortcut-help-card">
+                <div class="shortcut-help-header">
+                    <h3>Keyboard Shortcuts</h3>
+                    <button onclick="this.closest('.shortcut-help-overlay').remove()" class="shortcut-help-close">&times;</button>
+                </div>
+                <div class="shortcut-help-cols">
+                    <div>
+                        <p class="shortcut-section">Preview</p>
+                        <dl>
+                            <dt>Space</dt><dd>Play / Pause</dd>
+                            <dt>← →</dt><dd>Step 1 frame</dd>
+                            <dt>Shift + ← →</dt><dd>Step 5 seconds</dd>
+                            <dt>L</dt><dd>Toggle Loop</dd>
+                        </dl>
+                        <p class="shortcut-section">Alert Creator</p>
+                        <dl>
+                            <dt>I</dt><dd>Set Trim In</dd>
+                            <dt>O</dt><dd>Set Trim Out</dd>
+                        </dl>
+                    </div>
+                    <div>
+                        <p class="shortcut-section">Caption Editor</p>
+                        <dl>
+                            <dt>J</dt><dd>Next line + seek</dd>
+                            <dt>K</dt><dd>Previous line + seek</dd>
+                            <dt>T</dt><dd>Toggle current line</dd>
+                            <dt>✂</dt><dd>Split line at word</dd>
+                            <dt>⤵</dt><dd>Merge with next line</dd>
+                            <dt>Ctrl+S</dt><dd>Save captions</dd>
+                            <dt>Replace All</dt><dd>Fix Whisper misrecognition</dd>
+                        </dl>
+                        <p class="shortcut-section">General</p>
+                        <dl>
+                            <dt>?</dt><dd>This help</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        `;
+        el.addEventListener("click", (ev) => { if (ev.target === el) el.remove(); });
+        document.body.appendChild(el);
     }
 
     // ── Initialization ──────────────────────────────────────────
@@ -826,6 +1339,11 @@ const App = (() => {
                 } else if (!consent) {
                     showAutoDownloadConsentPrompt(deps);
                 }
+            }
+
+            // Show onboarding for first-time alert mode users (after deps settle)
+            if (!shouldOfferAutoInstall || consent) {
+                checkOnboardingForMode("alert");
             }
         } catch (e) {
             // Server not running - show connection error
@@ -888,6 +1406,7 @@ const App = (() => {
         // Load saved settings
         loadSettings();
         bindDependencyDropdownCloseHandlers();
+        initKeyboardShortcuts();
         applySeparateAudioTrimConstraints("start", { syncPreview: false });
 
         // ASCII star animation
@@ -1151,6 +1670,7 @@ const App = (() => {
             video.currentTime = trimStart;
         }
         updatePreviewTimelineFromCurrentTime();
+        updateWaveformRegion();
 
         if (useSeparateAudio) {
             syncAudioEndToClipDuration();
@@ -1169,9 +1689,69 @@ const App = (() => {
         $("trim-end-val").textContent = formatDuration(duration);
         $("trim-duration").textContent = "Duration: " + formatDuration(duration);
         updatePreviewTimelineFromCurrentTime();
+        updateWaveformRegion();
         if (useSeparateAudio) {
             syncAudioEndToClipDuration();
         }
+    }
+
+    // ── Waveform ─────────────────────────────────────────────────
+
+    function updateWaveformRegion() {
+        const region = $("trim-waveform-region");
+        if (!region || !clipDuration) return;
+        const startPct = (trimStart / clipDuration) * 100;
+        const endPct   = (trimEnd   / clipDuration) * 100;
+        region.style.left  = `${startPct}%`;
+        region.style.width = `${Math.max(0, endPct - startPct)}%`;
+    }
+
+    async function loadWaveform(jId) {
+        const bar = $("trim-waveform-bar");
+        const img = $("trim-waveform-img");
+        if (!bar || !img) return;
+        try {
+            const resp = await fetch(`/api/waveform/${jId}`);
+            if (!resp.ok) return;
+            const blob = await resp.blob();
+            img.style.backgroundImage = `url(${URL.createObjectURL(blob)})`;
+            bar.classList.remove("hidden");
+            updateWaveformRegion();
+        } catch (_) {}
+    }
+
+    // ── Preview Loop ─────────────────────────────────────────────
+
+    function toggleLoop() {
+        const video = $("crop-video");
+        const btn = $("preview-loop-btn");
+        if (!video) return;
+        video.loop = !video.loop;
+        if (btn) btn.classList.toggle("active", video.loop);
+    }
+
+    // ── Set In / Out ─────────────────────────────────────────────
+
+    function setTrimIn() {
+        const video = $("crop-video");
+        if (!video || !video.src || !clipDuration) return;
+        trimStart = Math.max(0, Math.round(video.currentTime * 100) / 100);
+        if (trimStart >= trimEnd - 0.05) trimStart = Math.max(0, trimEnd - 0.1);
+        $("trim-start-slider").value = (trimStart / clipDuration) * 100;
+        $("trim-start-val").textContent = formatDuration(trimStart);
+        $("trim-duration").textContent = "Duration: " + formatDuration(trimEnd - trimStart);
+        updateWaveformRegion();
+    }
+
+    function setTrimOut() {
+        const video = $("crop-video");
+        if (!video || !video.src || !clipDuration) return;
+        trimEnd = Math.min(clipDuration, Math.round(video.currentTime * 100) / 100);
+        if (trimEnd <= trimStart + 0.05) trimEnd = Math.min(clipDuration, trimStart + 0.1);
+        $("trim-end-slider").value = (trimEnd / clipDuration) * 100;
+        $("trim-end-val").textContent = formatDuration(trimEnd);
+        $("trim-duration").textContent = "Duration: " + formatDuration(trimEnd - trimStart);
+        updateWaveformRegion();
     }
 
     function onVolumeChange() {
@@ -1222,20 +1802,21 @@ const App = (() => {
             }
 
             videoUrl = url;
-            videoDuration = data.duration || 0;
+            videoDuration = Number(data.duration || 0);
             $("video-title").textContent = data.title;
-            $("video-duration").textContent = formatDuration(videoDuration);
+            $("video-duration").textContent = videoDuration > 0 ? formatDuration(videoDuration) : "Unknown";
             show("video-info");
 
             // Step 2: Automatically download the full video
             $("download-status-text").textContent = "Downloading video...";
+            const fullSourceEnd = videoDuration > 0 ? formatDuration(videoDuration) : "";
 
             const downloadData = await api("/api/download", {
                 method: "POST",
                 body: JSON.stringify({
                     url: videoUrl,
                     start: "0:00.00",
-                    end: formatDuration(videoDuration)
+                    end: fullSourceEnd,
                 }),
             });
 
@@ -1255,7 +1836,7 @@ const App = (() => {
             pollDownload(jobId);
 
         } catch (e) {
-            showError("step1-error", "Failed to load video. Is the server running?");
+            showError("step1-error", e.message || "Failed to load video.");
             hide("download-status");
         } finally {
             setLoading("validate-btn", false);
@@ -1288,10 +1869,10 @@ const App = (() => {
             }
 
             audioUrl = url;
-            audioDuration = data.duration;
+            audioDuration = Number(data.duration || 0);
             audioValidated = true;
             $("audio-video-title").textContent = data.title;
-            $("audio-video-duration").textContent = formatDuration(data.duration);
+            $("audio-video-duration").textContent = audioDuration > 0 ? formatDuration(audioDuration) : "Unknown";
             show("audio-video-info");
             if (useSeparateAudio) {
                 applySeparateAudioTrimConstraints("start", { syncPreview: false });
@@ -1688,6 +2269,10 @@ const App = (() => {
         try {
             // Get video info
             videoInfo = await api(`/api/video-info/${jobId}`);
+            if (videoInfo && Number(videoInfo.duration) > 0) {
+                videoDuration = Number(videoInfo.duration);
+                $("video-duration").textContent = formatDuration(videoDuration);
+            }
 
             // Load video preview
             loadVideoPreview();
@@ -1867,6 +2452,14 @@ const App = (() => {
             initTrimSliders(dur);
             syncSeparateAudioWithVideo(true);
             updatePreviewTimelineFromCurrentTime();
+
+            // Show timecode overlay + In/Out buttons
+            show("preview-timecode");
+            show("set-in-btn");
+            show("set-out-btn");
+
+            // Load waveform
+            if (jobId) loadWaveform(jobId);
         };
 
         // Handle looping within trim region
@@ -1876,6 +2469,8 @@ const App = (() => {
             }
             syncSeparateAudioWithVideo(false);
             updatePreviewTimelineFromCurrentTime();
+            const tc = $("preview-timecode");
+            if (tc) tc.textContent = formatDuration(video.currentTime);
         };
         video.onended = () => {
             video.currentTime = trimStart;
@@ -2037,6 +2632,7 @@ const App = (() => {
             bufferDuration: $("setting-buffer")?.value || "2",
             normalizeAudio: $("setting-normalize-audio")?.checked ?? true,
             audioFadeDuration: $("setting-audio-fade-duration")?.value || "0.35",
+            exportPreset: $("setting-export-preset")?.value || "stream_alert",
         };
     }
 
@@ -2053,6 +2649,10 @@ const App = (() => {
                 if (settings.audioFadeDuration) {
                     $("setting-audio-fade-duration").value = settings.audioFadeDuration;
                 }
+                if (settings.exportPreset) {
+                    const el = $("setting-export-preset");
+                    if (el) el.value = settings.exportPreset;
+                }
             }
         } catch (e) {
             // Ignore errors
@@ -2061,7 +2661,7 @@ const App = (() => {
         updateSettingsPanelLabels(getSettings());
 
         // Save on change
-        ["setting-resolution", "setting-buffer", "setting-normalize-audio", "setting-audio-fade-duration"].forEach(id => {
+        ["setting-resolution", "setting-buffer", "setting-normalize-audio", "setting-audio-fade-duration", "setting-export-preset"].forEach(id => {
             $(id)?.addEventListener("change", saveSettings);
         });
     }
@@ -2123,8 +2723,20 @@ const App = (() => {
         downloadResult,
         resetSettings,
         shutdownApp,
+        setTrimIn,
+        setTrimOut,
+        toggleLoop,
+        toggleShortcutHelp,
         installMissingDependencies,
         updateYtdlp,
+        installCaptioningDeps,
+        onboardingNext,
+        onboardingBack,
+        skipOnboarding,
+        restartOnboarding,
+        checkOnboardingForMode,
+        onboardingInstallCaptioning,
+        onboardingInstallRuntime,
         chooseOutputFolder,
         applyOutputFolder,
         resetOutputFolder,

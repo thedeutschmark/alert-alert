@@ -14,10 +14,38 @@
             <h1 class="logo-text">Alert<span class="ascii-bang" id="ascii-bang-1">!</span> Alert<span class="ascii-bang" id="ascii-bang-2">!</span></h1>
             <div class="mode-toggle" id="mode-toggle">
                 <button class="mode-btn active" id="mode-alert-btn" onclick="switchMode('alert')">Alert Creator</button>
-                <button class="mode-btn" id="mode-reel-btn" onclick="switchMode('reel')">Short Form Editor</button>
+                <button class="mode-btn" id="mode-reel-btn" onclick="switchMode('reel')">Video Editor</button>
             </div>
         </div>
         <div class="header-actions">
+            <div class="navbar-dropdown">
+                <button id="auth-session-toggle" class="setting-pill" type="button" data-panel="auth-session-panel"
+                    onclick="App.toggleSettingsPanel('auth-session-panel')">
+                    <span class="pill-label">Twitch Auth</span>
+                    <span id="auth-pill-value" class="pill-value">Checking...</span>
+                    <span class="pill-caret">▾</span>
+                </button>
+                <div id="auth-session-panel" class="workflow-settings-panel navbar-settings-panel">
+                    <div class="settings-section">
+                        <label class="settings-label">Shared Twitch Session</label>
+                        <div class="auth-session-card">
+                            <div class="auth-session-meta">
+                                <div id="auth-session-avatar" class="auth-session-avatar">DM</div>
+                                <div class="auth-session-copy">
+                                    <p id="auth-session-name" class="auth-session-name">Checking shared auth session…</p>
+                                    <p id="auth-session-detail" class="settings-hint">Uses the same <strong>auth.deutschmark.online</strong> Twitch login as the toolkit.</p>
+                                </div>
+                            </div>
+                            <div class="auth-session-actions">
+                                <button type="button" class="secondary-btn" id="auth-login-btn" onclick="DmAuth.login()">Login with Twitch</button>
+                                <button type="button" class="secondary-btn" id="auth-refresh-btn" onclick="DmAuth.refreshSession()">Refresh</button>
+                                <button type="button" class="secondary-btn hidden" id="auth-logout-btn" onclick="DmAuth.logout()">Logout</button>
+                            </div>
+                            <p id="auth-session-error" class="settings-hint">Run the app on <code>http://localhost:&lt;port&gt;</code> or an approved deutschmark.online app origin to use shared auth.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="navbar-dropdown">
                 <button id="dependency-settings-toggle" class="setting-pill" type="button" data-panel="dependency-settings-panel"
                     onclick="App.toggleSettingsPanel('dependency-settings-panel')">
@@ -67,37 +95,24 @@
                             onclick="App.installMissingDependencies(true)">Auto Install Missing</button>
                         <button id="update-ytdlp-btn" class="settings-reset hidden" type="button"
                             onclick="App.updateYtdlp()">Update yt-dlp (1-click)</button>
+                        <button id="install-captioning-deps-btn" class="settings-reset hidden" type="button"
+                            onclick="App.installCaptioningDeps(false)">Install faster-whisper + torch (1-click)</button>
+                        <button id="install-pyannote-btn" class="settings-reset hidden" type="button"
+                            onclick="App.installCaptioningDeps(true)">Install pyannote.audio (1-click)</button>
                         <label class="settings-label" style="margin-top: 12px;">Save Location</label>
                         <div class="storage-settings">
                             <input type="text" id="output-dir-input" class="settings-select" spellcheck="false"
-                                placeholder="Choose where finished alerts and reels are saved">
+                                placeholder="Choose where finished alerts and edited videos are saved"
+                                onkeydown="if(event.key==='Enter')App.applyOutputFolder()">
                             <div class="storage-actions">
                                 <button id="choose-output-dir-btn" class="secondary-btn" type="button"
                                     onclick="App.chooseOutputFolder()">Browse...</button>
-                                <button id="apply-output-dir-btn" class="secondary-btn" type="button"
-                                    onclick="App.applyOutputFolder()">Use Path</button>
                                 <button id="reset-output-dir-btn" class="secondary-btn" type="button"
-                                    onclick="App.resetOutputFolder()">Default</button>
+                                    onclick="App.resetOutputFolder()">Reset</button>
                             </div>
                             <p id="output-dir-status" class="settings-hint">Finished exports save to the app output folder by default.</p>
                         </div>
-                        <div class="settings-hint">
-                            <p><strong>How Auto Download Works</strong></p>
-                            <p>On launch, the app checks FFmpeg/ffprobe + yt-dlp (required) and Deno (optional). If anything is missing, it asks permission before downloading tools to your user runtime folder (no admin required).</p>
-                            <p><strong>Reel Captioning</strong></p>
-                            <p>Auto-captions need <code>faster-whisper</code> and <code>torch</code>. Speaker diarization also needs <code>pyannote.audio</code> plus a Hugging Face token. These Python packages are not auto-installed by the EXE runtime tools flow.</p>
-                            <p><strong>Troubleshooting Ideas</strong></p>
-                            <ol style="margin-left: 1.2rem; margin-top: 0.5rem; text-align: left;">
-                                <li>If you chose <strong>Manual Install Only</strong>, click <strong>Auto Install Missing</strong> any time to opt in and retry.</li>
-                                <li>If auto-install fails, confirm internet access to GitHub/FFmpeg hosts, then click <strong>Auto Install Missing</strong> again.</li>
-                                <li>If only Deno fails, the app still works normally; install Deno manually for harder YouTube challenge/protection cases.</li>
-                                <li>If captioning is missing, install <code>faster-whisper</code> and <code>torch</code> in the same Python environment that runs the app.</li>
-                                <li>If speaker detection is missing, install <code>pyannote.audio</code> and provide a Hugging Face token in the Short Form Editor.</li>
-                                <li>If corporate/firewall rules block downloads, manually install FFmpeg, yt-dlp, and Deno using the links above.</li>
-                                <li>If security software quarantines binaries, allow the runtime folder and retry, then restart the app.</li>
-                                <li>For YouTube extraction issues, use <strong>Update yt-dlp (1-click)</strong> before retrying.</li>
-                            </ol>
-                        </div>
+                        <button class="onboarding-restart-btn" type="button" onclick="App.restartOnboarding()">Setup Guide — walk me through everything</button>
                     </div>
                 </div>
             </div>
@@ -113,6 +128,25 @@
         <p id="dep-instructions" class="dep-instructions"></p>
     </div>
 
+    <!-- Onboarding Overlay -->
+    <div id="onboarding-overlay" class="onboarding-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div class="onboarding-card">
+            <button class="onboarding-skip" id="onboarding-skip-btn" onclick="App.skipOnboarding()" title="Skip tour" aria-label="Skip tour">✕</button>
+            <div class="onboarding-progress-bar">
+                <div class="onboarding-progress-fill" id="onboarding-progress-fill"></div>
+            </div>
+            <div class="onboarding-step-label" id="onboarding-step-label">Step 1 of 4</div>
+            <div class="onboarding-icon-wrap" id="onboarding-icon" aria-hidden="true"></div>
+            <h2 class="onboarding-title" id="onboarding-title"></h2>
+            <p class="onboarding-body" id="onboarding-body"></p>
+            <div id="onboarding-content-area"></div>
+            <div class="onboarding-nav">
+                <button class="onboarding-back-btn hidden" id="onboarding-back-btn" onclick="App.onboardingBack()">← Back</button>
+                <button class="onboarding-next-btn" id="onboarding-next-btn" onclick="App.onboardingNext()">Next →</button>
+            </div>
+        </div>
+    </div>
+
     <main class="main-layout" id="alert-workflow">
         <!-- Floating Video Preview (appears after validation) -->
         <aside class="video-sidebar hidden" id="video-sidebar">
@@ -122,6 +156,7 @@
                     <img id="crop-image" class="hidden" alt="Static image crop preview"
                         style="display:block;max-width:100%;max-height:calc(100vh - 250px);width:auto;height:auto;object-fit:contain;pointer-events:none;">
                     <div id="crop-overlay" class="hidden"></div>
+                    <div id="preview-timecode" class="timecode-overlay hidden">0:00.00</div>
                 </div>
                 <div class="volume-control" id="preview-timeline-control">
                     <span class="volume-icon">↔</span>
@@ -131,6 +166,9 @@
                 <div class="preview-controls" id="preview-controls">
                     <button id="preview-play-btn" class="control-btn">▶ Play</button>
                     <button id="preview-mute-btn" class="control-btn">🔇 Unmute</button>
+                    <button id="preview-loop-btn" class="control-btn" onclick="App.toggleLoop()" title="Loop preview">↺ Loop</button>
+                    <button id="set-in-btn" class="control-btn trim-point-btn hidden" onclick="App.setTrimIn()" title="Set trim start to current position (I)">[ In ]</button>
+                    <button id="set-out-btn" class="control-btn trim-point-btn hidden" onclick="App.setTrimOut()" title="Set trim end to current position (O)">[ Out ]</button>
                 </div>
                 <div class="volume-control" id="preview-volume-control">
                     <span class="volume-icon">🔊</span>
@@ -312,6 +350,10 @@
 
                     <!-- Basic Trim Sliders -->
                     <div class="trim-controls">
+                        <div class="trim-waveform-bar hidden" id="trim-waveform-bar">
+                            <div class="trim-waveform-img" id="trim-waveform-img"></div>
+                            <div class="trim-waveform-region" id="trim-waveform-region"></div>
+                        </div>
                         <div class="trim-slider-row">
                             <label class="trim-label">
                                 <span>Trim Start</span>
@@ -377,6 +419,15 @@
                             </select>
                         </div>
                         <div class="settings-section">
+                            <label class="settings-label">Export Preset</label>
+                            <select id="setting-export-preset" class="settings-select">
+                                <option value="stream_alert" selected>Stream Alert (CRF 23 · balanced)</option>
+                                <option value="tiktok_reel">TikTok / Shorts (CRF 23 · fast)</option>
+                                <option value="discord_clip">Discord Clip (CRF 28 · smallest)</option>
+                                <option value="quality">Max Quality (CRF 18 · slow)</option>
+                            </select>
+                        </div>
+                        <div class="settings-section">
                             <label class="settings-label">
                                 End Buffer
                                 <span class="tooltip-icon"
@@ -410,6 +461,16 @@
 
     <!-- ── Reel Maker Workflow ── -->
     <main class="reel-layout hidden" id="reel-workflow">
+        <div class="reel-menubar" aria-label="Desktop editor chrome">
+            <span class="reel-menu-item">File</span>
+            <span class="reel-menu-item">Edit</span>
+            <span class="reel-menu-item">Clip</span>
+            <span class="reel-menu-item">View</span>
+            <span class="reel-menu-item">Export</span>
+            <span class="reel-menu-divider"></span>
+            <span id="reel-window-project-label" class="reel-menu-project">Video Editor Workspace</span>
+        </div>
+
         <div class="desktop-toolbar reel-desktop-toolbar">
             <div class="toolbar-group">
                 <span class="toolbar-label">Project</span>
@@ -423,8 +484,8 @@
                     <button class="source-btn active" id="reel-source-url-btn" onclick="ReelMaker.setSourceType('url')">URL</button>
                     <button class="source-btn" id="reel-source-file-btn" onclick="ReelMaker.setSourceType('file')">Local File</button>
                 </div>
-                <input type="text" id="reel-url-input" class="toolbar-input" placeholder="Paste VOD URL (YouTube, TikTok, Twitch, etc.)..." spellcheck="false">
-                <button id="reel-validate-btn" class="toolbar-btn toolbar-btn-primary" onclick="ReelMaker.validateUrl()">Load VOD</button>
+                <input type="text" id="reel-url-input" class="toolbar-input" placeholder="Paste video URL (YouTube, TikTok, Twitch, etc.)..." spellcheck="false">
+                <button id="reel-validate-btn" class="toolbar-btn toolbar-btn-primary" onclick="ReelMaker.validateUrl()">Load Video</button>
                 <button type="button" class="toolbar-btn" onclick="ReelMaker.openLocalVodPicker()">Browse File</button>
             </div>
 
@@ -435,15 +496,17 @@
             </div>
 
             <div class="toolbar-group">
-                <span class="toolbar-label">Clips</span>
+                <span class="toolbar-label">Timeline</span>
                 <button id="reel-add-clip-btn" class="toolbar-btn" onclick="ReelMaker.addClip()">Add Clip</button>
                 <button id="reel-import-moments-btn" class="toolbar-btn" onclick="ReelMaker.importSourceMoments()">Import Moments</button>
                 <button id="reel-download-clips-btn" class="toolbar-btn toolbar-btn-primary" onclick="ReelMaker.downloadAllClips()">Download &amp; Stitch</button>
+                <span id="reel-total-duration" class="toolbar-label" title="Total reel duration based on clip ranges"></span>
             </div>
 
             <div class="toolbar-group">
                 <span class="toolbar-label">Captions</span>
                 <select id="reel-caption-language" class="settings-select toolbar-select">
+                    <option value="">Auto-detect</option>
                     <option value="en" selected>English</option>
                     <option value="de">German</option>
                     <option value="es">Spanish</option>
@@ -453,293 +516,622 @@
                     <option value="pt">Portuguese</option>
                     <option value="zh">Chinese</option>
                 </select>
-                <select id="reel-whisper-model" class="settings-select toolbar-select">
-                    <option value="tiny">Tiny</option>
-                    <option value="base">Base</option>
-                    <option value="small">Small</option>
-                    <option value="medium">Medium</option>
-                    <option value="large-v3" selected>Large v3</option>
+                <select id="reel-whisper-model" class="settings-select toolbar-select" title="Smaller = faster. Larger = more accurate. Large v3 recommended for streams.">
+                    <option value="tiny">Tiny (fastest, ~32x RT)</option>
+                    <option value="base">Base (~20x RT)</option>
+                    <option value="small">Small (~8x RT)</option>
+                    <option value="medium">Medium (~4x RT)</option>
+                    <option value="large-v3" selected>Large v3 (~1x RT, best)</option>
                 </select>
                 <button id="reel-transcribe-btn" class="toolbar-btn" onclick="ReelMaker.transcribe()" disabled>Transcribe</button>
+                <label class="toolbar-checkbox-label" title="Start transcription automatically after clips finish downloading">
+                    <input type="checkbox" id="reel-auto-transcribe"> Auto
+                </label>
+            </div>
+
+            <div class="toolbar-group toolbar-group-formats">
+                <span class="toolbar-label">Format</span>
+                <div class="format-preset-strip" id="reel-format-presets">
+                    <button type="button" class="toolbar-btn format-preset-btn active" data-format-preset="shorts"
+                        onclick="ReelMaker.setExportFormatPreset('shorts')">Shorts / Reels</button>
+                    <button type="button" class="toolbar-btn format-preset-btn" data-format-preset="portrait_feed"
+                        onclick="ReelMaker.setExportFormatPreset('portrait_feed')">4:5 Feed</button>
+                    <button type="button" class="toolbar-btn format-preset-btn" data-format-preset="square"
+                        onclick="ReelMaker.setExportFormatPreset('square')">Square</button>
+                    <button type="button" class="toolbar-btn format-preset-btn" data-format-preset="landscape"
+                        onclick="ReelMaker.setExportFormatPreset('landscape')">16:9 Landscape</button>
+                </div>
+                <span id="reel-export-format-summary" class="toolbar-label reel-export-format-summary">1080x1920 MP4</span>
+                <span id="reel-export-composition-summary" class="toolbar-label reel-export-composition-summary">Gameplay Focus vertical framing</span>
             </div>
 
             <div class="toolbar-group">
                 <span class="toolbar-label">Export</span>
-                <select id="reel-setting-resolution" class="settings-select toolbar-select">
-                    <option value="1080">1080p</option>
-                    <option value="1440">1440p</option>
-                    <option value="2160" selected>4K</option>
-                </select>
-                <button id="reel-export-btn" class="toolbar-btn toolbar-btn-primary" onclick="ReelMaker.exportReel()" disabled>Export Video</button>
+                <label class="toolbar-checkbox-label" title="Bake captions into the exported video. Uncheck for a clean video + separate subtitle files.">
+                    <input type="checkbox" id="reel-burn-captions" checked> Burn Captions
+                </label>
+                <button id="reel-export-btn" class="toolbar-btn toolbar-btn-primary" onclick="ReelMaker.exportReel()" disabled>Render Video</button>
                 <button id="reel-export-download-btn" class="toolbar-btn hidden" onclick="ReelMaker.downloadReel()">Download</button>
             </div>
         </div>
 
         <div class="main-layout reel-workspace">
-            <!-- Reel Video Preview -->
-            <aside class="video-sidebar hidden" id="reel-video-sidebar">
-                <div class="video-preview-sticky">
-                    <div id="reel-preview-container">
-                        <video id="reel-preview-video" muted playsinline controls preload="metadata"></video>
+            <aside class="reel-dock reel-left-dock">
+                <section class="reel-dock-panel reel-project-browser">
+                    <div class="reel-dock-header">
+                        <div>
+                            <p class="reel-dock-kicker">Project</p>
+                            <h3>Project Browser</h3>
+                        </div>
+                        <span id="reel-project-badge" class="reel-project-badge hidden"></span>
                     </div>
-                    <div class="preview-controls" id="reel-preview-controls">
-                        <button id="reel-play-btn" class="control-btn" onclick="ReelMaker.togglePlay()">&#9654; Play</button>
-                        <button id="reel-mute-btn" class="control-btn" onclick="ReelMaker.toggleMute()">&#128263; Unmute</button>
-                    </div>
-                    <div class="reel-zoom-bar">
-                        <span class="settings-hint">Timeline Zoom</span>
-                        <input type="range" id="reel-timeline-zoom" min="1" max="4" step="0.25" value="1">
-                        <span id="reel-timeline-zoom-value" class="reel-timeline-time">100%</span>
-                    </div>
-                    <div class="reel-timeline-card hidden" id="reel-timeline-card">
-                        <div class="reel-timeline-header">
-                            <span>VOD Timeline</span>
-                            <span id="reel-preview-time" class="reel-timeline-time">0:00 / 0:00</span>
-                        </div>
-                        <div class="reel-timeline-scroll" id="reel-timeline-scroll">
-                            <div class="reel-timeline-track" id="reel-timeline-track">
-                                <div id="reel-timeline-clips" class="reel-timeline-clips"></div>
-                                <div id="reel-timeline-playhead" class="reel-timeline-playhead"></div>
-                            </div>
-                        </div>
-                        <p class="settings-hint" id="reel-shortcut-hint">Shortcuts: `Space` play/pause, `I` set active clip start, `O` set active clip end, `[` / `]` nudge 1s, `Shift` + `[` / `]` nudge 0.1s.</p>
-                    </div>
-                    <div class="reel-timeline-card hidden" id="reel-sequence-card">
-                        <div class="reel-timeline-header">
-                            <span>Sequence Preview</span>
-                            <span id="reel-sequence-time" class="reel-timeline-time">0:00 / 0:00</span>
-                        </div>
-                        <div class="reel-timeline-scroll" id="reel-sequence-scroll">
-                            <div class="reel-timeline-track reel-sequence-track" id="reel-sequence-track">
-                                <div id="reel-sequence-clips" class="reel-timeline-clips"></div>
-                                <div id="reel-sequence-playhead" class="reel-timeline-playhead"></div>
-                            </div>
-                        </div>
-                        <p id="reel-sequence-active" class="settings-hint">Sequence preview shows the stitched clip order before export.</p>
-                    </div>
-                    <div class="reel-timeline-card hidden" id="reel-assets-card">
-                        <div class="reel-timeline-header">
-                            <span>Asset Bin</span>
-                            <span id="reel-assets-count" class="reel-timeline-time">0 items</span>
-                        </div>
-                        <div id="reel-assets-list" class="reel-assets-list"></div>
-                    </div>
-                </div>
-            </aside>
-
-            <div class="workflow-steps">
-            <!-- Step R1: VOD Source -->
-            <section class="step" id="reel-step-1">
-                <h2><span class="step-num">1</span> VOD Source</h2>
-                <div class="step-content">
-                    <div class="reel-project-toolbar">
-                        <div class="reel-project-summary">
-                            <span id="reel-project-badge" class="reel-project-badge hidden"></span>
-                            <p id="reel-project-meta" class="settings-hint">Short-form projects autosave locally and can be resumed later.</p>
-                        </div>
-                        <div class="reel-project-actions">
-                            <button type="button" class="secondary-btn" onclick="ReelMaker.reloadRecentProjects()">Refresh Projects</button>
-                            <button type="button" class="secondary-btn" onclick="ReelMaker.startNewProject()">New Project</button>
-                        </div>
+                    <p id="reel-project-meta" class="settings-hint">Video projects autosave locally and can be resumed later.</p>
+                    <div class="reel-project-actions">
+                        <button type="button" class="secondary-btn" onclick="ReelMaker.reloadRecentProjects()">Refresh Projects</button>
+                        <button type="button" class="secondary-btn" onclick="ReelMaker.startNewProject()">New Project</button>
                     </div>
 
                     <div id="reel-recent-projects-card" class="reel-projects-card hidden">
+                        <div class="reel-dock-subheader">
+                            <span>Recent Projects</span>
+                            <span class="reel-timeline-time">Local autosaves</span>
+                        </div>
                         <div id="reel-recent-projects" class="reel-project-list"></div>
                     </div>
+                </section>
 
-                    <div id="reel-url-section" class="hidden">
-                        <p class="settings-hint">Use the toolbar above to load a remote VOD URL.</p>
+                <section id="reel-assets-card" class="reel-dock-panel hidden">
+                    <div class="reel-dock-header">
+                        <div>
+                            <p class="reel-dock-kicker">Media</p>
+                            <h3>Project Files</h3>
+                        </div>
+                        <span id="reel-assets-count" class="reel-timeline-time">0 items</span>
                     </div>
+                    <div id="reel-assets-list" class="reel-assets-list"></div>
+                </section>
+            </aside>
 
-                    <div id="reel-file-section" class="hidden">
-                        <div class="file-upload-area" id="reel-file-drop-zone">
-                            <input type="file" id="reel-video-input" accept="video/*" class="hidden">
-                            <div class="file-upload-content">
-                                <span class="file-upload-icon">&#128193;</span>
-                                <p>Drag & drop video file here</p>
-                                <p class="file-upload-hint">or <button type="button" class="link-btn" onclick="document.getElementById('reel-video-input').click()">browse files</button></p>
-                            </div>
+            <section class="reel-center-stage">
+                <section class="reel-monitor-shell">
+                    <div class="reel-monitor-header">
+                        <div>
+                            <p class="reel-dock-kicker">Monitor</p>
+                            <h3 id="reel-monitor-title">Source Monitor</h3>
+                        </div>
+                        <div class="reel-monitor-switch">
+                            <button type="button" id="reel-monitor-source-chip" class="toolbar-btn reel-monitor-chip active"
+                                onclick="ReelMaker.previewSource()">Source Monitor</button>
+                            <button type="button" id="reel-monitor-sequence-chip" class="toolbar-btn reel-monitor-chip"
+                                onclick="ReelMaker.previewSequence()">Sequence Monitor</button>
                         </div>
                     </div>
+                    <p id="reel-monitor-subtitle" class="settings-hint">Load a source video to start building the timeline.</p>
 
-                    <div id="reel-vod-info" class="hidden">
-                        <p class="info-label">Title: <span id="reel-vod-title"></span></p>
-                        <p class="info-label">Duration: <span id="reel-vod-duration"></span></p>
+                    <aside class="video-sidebar hidden reel-monitor-sidebar" id="reel-video-sidebar">
+                        <div class="video-preview-sticky reel-monitor-preview">
+                            <div id="reel-preview-container">
+                                <video id="reel-preview-video" muted playsinline controls preload="metadata"></video>
+                                <div id="reel-facecam-guide" class="reel-facecam-guide hidden">
+                                    <span class="reel-facecam-guide-label">Facecam</span>
+                                    <button type="button" id="reel-facecam-guide-handle" class="reel-facecam-guide-handle" aria-label="Resize facecam guide"></button>
+                                </div>
+                                <div id="reel-preview-timecode" class="timecode-overlay hidden">0:00.00</div>
+                            </div>
+                            <div class="preview-controls" id="reel-preview-controls">
+                                <button id="reel-play-btn" class="control-btn" onclick="ReelMaker.togglePlay()">&#9654; Play</button>
+                                <button id="reel-mute-btn" class="control-btn" onclick="ReelMaker.toggleMute()">&#128263; Unmute</button>
+                            </div>
+                            <div class="reel-zoom-bar">
+                                <span class="settings-hint">Timeline Zoom</span>
+                                <input type="range" id="reel-timeline-zoom" min="1" max="4" step="0.25" value="1">
+                                <span id="reel-timeline-zoom-value" class="reel-timeline-time">100%</span>
+                            </div>
+
+                            <div class="reel-timeline-card hidden" id="reel-timeline-card">
+                                <div class="reel-timeline-header">
+                                    <span>Source Timeline</span>
+                                    <span id="reel-preview-time" class="reel-timeline-time">0:00 / 0:00</span>
+                                </div>
+                                <div class="reel-multitrack-shell">
+                                    <div class="reel-track-sidebar">
+                                        <div class="reel-track-label reel-track-label-ruler">Time</div>
+                                        <div class="reel-track-label">V1 Source</div>
+                                        <div class="reel-track-label">A1 Cue</div>
+                                        <div class="reel-track-label">Markers</div>
+                                    </div>
+                                    <div class="reel-track-scroll" id="reel-timeline-scroll">
+                                        <div class="reel-track-stack" id="reel-source-track-stack">
+                                            <div class="reel-time-ruler" id="reel-source-ruler"></div>
+                                            <div class="reel-timeline-track" id="reel-timeline-track">
+                                                <div id="reel-timeline-clips" class="reel-timeline-clips"></div>
+                                            </div>
+                                            <div id="reel-source-audio-lane" class="reel-guide-lane reel-guide-lane-audio"></div>
+                                            <div id="reel-source-caption-lane" class="reel-guide-lane reel-guide-lane-caption"></div>
+                                            <div id="reel-timeline-playhead" class="reel-timeline-playhead"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p class="settings-hint" id="reel-shortcut-hint">Shortcuts: `Space` play/pause, `I` set active clip start, `O` set active clip end, `[` / `]` nudge 1s, `Shift` + `[` / `]` nudge 0.1s.</p>
+                            </div>
+
+                            <div class="reel-timeline-card hidden" id="reel-sequence-card">
+                                <div class="reel-timeline-header">
+                                    <span>Sequence Preview</span>
+                                    <span id="reel-sequence-time" class="reel-timeline-time">0:00 / 0:00</span>
+                                </div>
+                                <div class="reel-multitrack-shell">
+                                    <div class="reel-track-sidebar">
+                                        <div class="reel-track-label reel-track-label-ruler">Time</div>
+                                        <div class="reel-track-label">V1 Program</div>
+                                        <div class="reel-track-label">A1 Mix</div>
+                                        <div class="reel-track-label">CC Track</div>
+                                    </div>
+                                    <div class="reel-track-scroll" id="reel-sequence-scroll">
+                                        <div class="reel-track-stack" id="reel-sequence-track-stack">
+                                            <div class="reel-time-ruler" id="reel-sequence-ruler"></div>
+                                            <div class="reel-timeline-track reel-sequence-track" id="reel-sequence-track">
+                                                <div id="reel-sequence-clips" class="reel-timeline-clips"></div>
+                                            </div>
+                                            <div id="reel-sequence-audio-lane" class="reel-guide-lane reel-guide-lane-audio"></div>
+                                            <div id="reel-sequence-caption-lane" class="reel-guide-lane reel-guide-lane-caption"></div>
+                                            <div id="reel-sequence-playhead" class="reel-timeline-playhead"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <p id="reel-sequence-active" class="settings-hint">Sequence preview shows the stitched clip order before export.</p>
+                            </div>
+                        </div>
+                    </aside>
+                </section>
+
+                <section class="step disabled reel-step-center" id="reel-step-2">
+                    <h2><span class="step-num">2</span> Timeline</h2>
+                    <div class="step-content">
+                        <div class="reel-edit-header">
+                            <div>
+                                <p class="reel-dock-kicker">Edit Decision List</p>
+                                <h3>Cut List</h3>
+                            </div>
+                            <span id="reel-active-clip-pill" class="reel-inspector-pill hidden"></span>
+                        </div>
+                        <p class="settings-hint">Add timestamp ranges from the source video to include in the final edit.</p>
+                        <p id="reel-source-moments-status" class="settings-hint">Source highlights and chapters will appear here when the platform exposes them.</p>
+                        <div class="reel-clip-workbench">
+                            <div id="reel-clip-list" class="clip-list"></div>
+                        </div>
+                        <div id="reel-clip-actions" class="hidden" style="margin-top:12px;">
+                            <button type="button" class="secondary-btn" id="reel-detect-moments-btn"
+                                    onclick="ReelMaker.detectMoments()" title="Auto-detect speech segments in a local video file to suggest clips">
+                                Detect Moments
+                            </button>
+                            <p id="reel-detect-moments-status" class="info-label hidden"></p>
+                            <div id="reel-download-status" class="hidden" style="margin-top:8px;">
+                                <div class="progress-bar-bg">
+                                    <div id="reel-download-bar" class="progress-bar-fill" style="width:0%"></div>
+                                </div>
+                                <p id="reel-download-status-text" class="info-label">Starting...</p>
+                            </div>
+                        </div>
+                        <div id="reel-step2-error" class="error-msg hidden"></div>
                     </div>
-                    <p id="reel-local-file-restore" class="settings-hint hidden">This project used a local file that was not uploaded yet. Re-select the source file to keep editing or stitch clips.</p>
-                    <div id="reel-step1-error" class="error-msg hidden"></div>
-                </div>
+                </section>
             </section>
 
-            <!-- Step R2: Clip Selector -->
-            <section class="step disabled" id="reel-step-2">
-                <h2><span class="step-num">2</span> Clips</h2>
-                <div class="step-content">
-                    <p class="settings-hint">Add timestamp ranges from the VOD to include in your short-form cut.</p>
-                    <p id="reel-source-moments-status" class="settings-hint">Source moments will be imported here when the VOD exposes them.</p>
-                    <div class="reel-clip-workbench">
-                        <div id="reel-clip-list" class="clip-list"></div>
-                        <aside id="reel-clip-inspector" class="reel-clip-inspector hidden">
-                            <div class="reel-clip-inspector-header">
-                                <div>
-                                    <p class="reel-clip-inspector-kicker">Clip Inspector</p>
-                                    <h3 id="reel-inspector-heading">No clip selected</h3>
+            <div class="workflow-steps reel-right-dock">
+                <!-- Step R1: Video Source -->
+                <section class="step" id="reel-step-1">
+                    <h2><span class="step-num">1</span> Video Source</h2>
+                    <div class="step-content">
+                        <div id="reel-url-section" class="hidden">
+                            <p class="settings-hint">Use the toolbar above to load a remote video URL.</p>
+                        </div>
+
+                        <div id="reel-file-section" class="hidden">
+                            <div class="file-upload-area" id="reel-file-drop-zone">
+                                <input type="file" id="reel-video-input" accept="video/*" class="hidden">
+                                <div class="file-upload-content">
+                                    <span class="file-upload-icon">&#128193;</span>
+                                    <p>Drag & drop video file here</p>
+                                    <p class="file-upload-hint">or <button type="button" class="link-btn" onclick="document.getElementById('reel-video-input').click()">browse files</button></p>
                                 </div>
-                                <span id="reel-inspector-source-kind" class="reel-inspector-pill hidden"></span>
                             </div>
-                            <div class="reel-clip-inspector-grid">
-                                <label class="reel-inspector-field">
-                                    <span>Title</span>
-                                    <input type="text" id="reel-clip-title-input" placeholder="Clip title" spellcheck="false">
+                        </div>
+
+                        <div id="reel-vod-info" class="hidden">
+                            <p class="info-label">Title: <span id="reel-vod-title"></span></p>
+                            <p class="info-label">Duration: <span id="reel-vod-duration"></span></p>
+                        </div>
+                        <div class="reel-streamer-panel">
+                            <div class="reel-dock-header">
+                                <div>
+                                    <p class="reel-dock-kicker">Streamer Workflow</p>
+                                    <h3>Session Setup</h3>
+                                </div>
+                            </div>
+                            <div class="reel-auth-bridge">
+                                <div class="reel-auth-bridge-copy">
+                                    <p class="reel-dock-kicker">Shared Twitch Auth</p>
+                                    <h4 id="reel-auth-heading">Connect your Twitch identity</h4>
+                                    <p id="reel-auth-summary" class="settings-hint">Sign in with the shared auth worker, then sync your Twitch login into this project.</p>
+                                </div>
+                                <div class="reel-streamer-actions">
+                                    <button type="button" class="secondary-btn" onclick="DmAuth.login()">Login with Twitch</button>
+                                    <button type="button" class="secondary-btn" id="reel-auth-sync-btn" onclick="DmAuth.applyToVideoEditor()">Use Connected Twitch</button>
+                                </div>
+                            </div>
+                            <div class="reel-connected-vods">
+                                <div class="reel-connected-vods-header">
+                                    <div>
+                                        <p class="reel-dock-kicker">Connected Twitch VODs</p>
+                                        <h4>Load a recent stream</h4>
+                                    </div>
+                                    <div class="reel-streamer-actions">
+                                        <button type="button" class="secondary-btn" id="reel-auth-load-vods-btn" onclick="ReelMaker.loadConnectedTwitchVideos()">Refresh Twitch VODs</button>
+                                        <button type="button" class="secondary-btn" id="reel-auth-open-vod-btn" onclick="ReelMaker.loadSelectedConnectedTwitchVod()">Load Selected VOD</button>
+                                        <button type="button" class="secondary-btn" id="reel-auth-import-twitch-markers-btn" onclick="ReelMaker.importMarkersFromConnectedVod()">Import Twitch Markers</button>
+                                        <button type="button" class="secondary-btn" id="reel-auth-load-twitch-clips-btn" onclick="ReelMaker.loadConnectedTwitchClips()">Load Twitch Clips</button>
+                                        <button type="button" class="secondary-btn" id="reel-auth-import-twitch-clips-btn" onclick="ReelMaker.importClipsFromConnectedVod()">Import Twitch Clips</button>
+                                    </div>
+                                </div>
+                                <select id="reel-auth-vod-select" class="settings-select">
+                                    <option value="">Sign in to list recent Twitch VODs</option>
+                                </select>
+                                <p id="reel-auth-vod-status" class="settings-hint">Pull recent Twitch archives from the shared auth backend, then import markers from the selected VOD.</p>
+                                <div id="reel-auth-clip-list" class="reel-auth-clip-list">
+                                    <div class="reel-auth-clip-empty">Load Twitch clips from the selected VOD to surface them here before importing.</div>
+                                </div>
+                                <p id="reel-auth-clip-status" class="settings-hint">Fetch Twitch clips that viewers already cut from this stream, then import them as editable starter clips.</p>
+                            </div>
+                            <p class="settings-hint">Track the stream session, paste marker times from your hotkey workflow, and surface those moments as editable clips before you start cutting.</p>
+                            <div class="reel-beta-flow-panel">
+                                <div class="reel-beta-flow-header">
+                                    <div>
+                                        <p class="reel-dock-kicker">Beta Status</p>
+                                        <h4>End-to-end streamer workflow</h4>
+                                    </div>
+                                    <span id="reel-beta-flow-progress" class="reel-beta-flow-progress">0 / 10 ready</span>
+                                </div>
+                                <p id="reel-beta-flow-next" class="settings-hint">Connect Twitch or load a source VOD to start the beta flow.</p>
+                                <div id="reel-beta-flow-list" class="reel-beta-flow-list">
+                                    <div class="reel-beta-flow-empty">Workflow status will populate as soon as you start a project.</div>
+                                </div>
+                            </div>
+                            <div class="reel-streamer-grid">
+                                <label class="reel-streamer-field">
+                                    <span>Platform</span>
+                                    <select id="reel-session-platform" class="settings-select">
+                                        <option value="twitch" selected>Twitch</option>
+                                        <option value="youtube">YouTube</option>
+                                        <option value="kick">Kick</option>
+                                        <option value="other">Other</option>
+                                    </select>
                                 </label>
-                                <label class="reel-inspector-field">
-                                    <span>Range</span>
-                                    <input type="text" id="reel-inspector-range" readonly>
+                                <label class="reel-streamer-field">
+                                    <span>Channel</span>
+                                    <input type="text" id="reel-session-channel" placeholder="Streamer or channel name" spellcheck="false">
                                 </label>
-                                <label class="reel-inspector-field">
-                                    <span>Duration</span>
-                                    <input type="text" id="reel-inspector-duration" readonly>
+                                <label class="reel-streamer-field">
+                                    <span>Game</span>
+                                    <input type="text" id="reel-session-game" placeholder="Game / category" spellcheck="false">
                                 </label>
-                                <label class="reel-inspector-field reel-inspector-field-wide">
+                                <label class="reel-streamer-field">
+                                    <span>Session</span>
+                                    <input type="text" id="reel-session-label" placeholder="Ranked grind, tournament run, funny moments..." spellcheck="false">
+                                </label>
+                                <label class="reel-streamer-field">
+                                    <span>Stream Date</span>
+                                    <input type="date" id="reel-session-date">
+                                </label>
+                                <label class="reel-streamer-field reel-streamer-field-wide">
                                     <span>Notes</span>
-                                    <textarea id="reel-clip-note-input" rows="6" placeholder="Keep context, pacing notes, hook ideas, caption reminders..."></textarea>
+                                    <textarea id="reel-session-notes" rows="2" placeholder="Optional notes for this stream session or content batch..."></textarea>
                                 </label>
                             </div>
-                            <div class="reel-clip-inspector-actions">
-                                <button type="button" class="secondary-btn" id="reel-inspector-jump-btn">Jump to Clip</button>
-                                <button type="button" class="secondary-btn" id="reel-inspector-start-btn">Set Start at Playhead</button>
-                                <button type="button" class="secondary-btn" id="reel-inspector-end-btn">Set End at Playhead</button>
-                            </div>
-                        </aside>
-                    </div>
-                    <div id="reel-clip-actions" class="hidden" style="margin-top:12px;">
-                        <div id="reel-download-status" class="hidden" style="margin-top:8px;">
-                            <div class="progress-bar-bg">
-                                <div id="reel-download-bar" class="progress-bar-fill" style="width:0%"></div>
-                            </div>
-                            <p id="reel-download-status-text" class="info-label">Starting...</p>
-                        </div>
-                    </div>
-                    <div id="reel-step2-error" class="error-msg hidden"></div>
-                </div>
-            </section>
-
-            <!-- Step R3: Captions -->
-            <section class="step disabled" id="reel-step-3">
-                <h2><span class="step-num">3</span> Captions</h2>
-                <div class="step-content">
-                    <div id="reel-transcribe-controls">
-                        <div id="reel-hf-token-section">
-                            <p class="settings-hint">Speaker identification requires a free
-                                <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">HuggingFace token</a>.
-                                Without it, all text appears as one speaker.</p>
-                            <input type="text" id="reel-hf-token" placeholder="hf_xxxx... (optional)" spellcheck="false">
-                        </div>
-                    </div>
-
-                    <div id="reel-transcribe-progress" class="hidden">
-                        <div class="progress-bar-bg">
-                            <div id="reel-transcribe-bar" class="progress-bar-fill" style="width:0%"></div>
-                        </div>
-                        <p id="reel-transcribe-status" class="info-label">Starting...</p>
-                    </div>
-
-                    <!-- Caption editor (shown after transcription) -->
-                    <div id="reel-caption-editor" class="hidden">
-                        <div class="caption-style-panel">
-                            <div class="caption-style-header">
-                                <div>
-                                    <p class="caption-style-kicker">Style</p>
-                                    <h3>Caption Look</h3>
+                            <div class="reel-facecam-panel">
+                                <div class="reel-facecam-header">
+                                    <div>
+                                        <p class="reel-dock-kicker">Facecam Guide</p>
+                                        <h4>Remember your camera box</h4>
+                                    </div>
+                                    <label class="toolbar-checkbox-label reel-facecam-toggle">
+                                        <input type="checkbox" id="reel-facecam-enabled"> Use facecam guide
+                                    </label>
                                 </div>
-                                <span id="caption-style-summary" class="settings-hint">Saved with this project.</span>
+                                <p id="reel-facecam-summary" class="settings-hint">Enable a saved facecam guide if your stream layout has a consistent camera box. Drag the guide in Source Monitor to place it.</p>
+                                <div class="reel-facecam-actions">
+                                    <button type="button" class="secondary-btn" onclick="ReelMaker.setFacecamPreset('top_left')">Top Left</button>
+                                    <button type="button" class="secondary-btn" onclick="ReelMaker.setFacecamPreset('top_right')">Top Right</button>
+                                    <button type="button" class="secondary-btn" onclick="ReelMaker.setFacecamPreset('bottom_left')">Bottom Left</button>
+                                    <button type="button" class="secondary-btn" onclick="ReelMaker.setFacecamPreset('bottom_right')">Bottom Right</button>
+                                </div>
+                                <div class="reel-facecam-grid">
+                                    <label class="reel-streamer-field">
+                                        <span>X Position</span>
+                                        <input type="range" id="reel-facecam-x" min="0" max="92" step="1" value="72">
+                                        <span id="reel-facecam-x-value" class="settings-hint">72%</span>
+                                    </label>
+                                    <label class="reel-streamer-field">
+                                        <span>Y Position</span>
+                                        <input type="range" id="reel-facecam-y" min="0" max="92" step="1" value="4">
+                                        <span id="reel-facecam-y-value" class="settings-hint">4%</span>
+                                    </label>
+                                    <label class="reel-streamer-field">
+                                        <span>Width</span>
+                                        <input type="range" id="reel-facecam-width" min="8" max="70" step="1" value="24">
+                                        <span id="reel-facecam-width-value" class="settings-hint">24%</span>
+                                    </label>
+                                    <label class="reel-streamer-field">
+                                        <span>Height</span>
+                                        <input type="range" id="reel-facecam-height" min="8" max="70" step="1" value="24">
+                                        <span id="reel-facecam-height-value" class="settings-hint">24%</span>
+                                    </label>
+                                </div>
                             </div>
-                            <div class="caption-style-grid">
-                                <label class="caption-style-field">
-                                    <span>Preset</span>
-                                    <select id="caption-style-preset">
-                                        <option value="pathos_clean">Pathos Clean</option>
-                                        <option value="broadcast_bold">Broadcast Bold</option>
-                                        <option value="minimal_clean">Minimal Clean</option>
-                                    </select>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Font</span>
-                                    <select id="caption-style-font">
-                                        <option value="Arial">Arial</option>
-                                        <option value="Impact">Impact</option>
-                                        <option value="Tahoma">Tahoma</option>
-                                        <option value="Verdana">Verdana</option>
-                                        <option value="Trebuchet MS">Trebuchet MS</option>
-                                    </select>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Font Scale</span>
-                                    <input type="range" id="caption-style-scale" min="0.65" max="1.8" step="0.05" value="1">
-                                    <span id="caption-style-scale-value" class="settings-hint">1.00x</span>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Max Words</span>
-                                    <input type="range" id="caption-style-max-words" min="2" max="12" step="1" value="6">
-                                    <span id="caption-style-max-words-value" class="settings-hint">6 words</span>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Bottom Margin</span>
-                                    <input type="range" id="caption-style-margin" min="40" max="260" step="4" value="120">
-                                    <span id="caption-style-margin-value" class="settings-hint">120px</span>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Outline</span>
-                                    <input type="range" id="caption-style-outline" min="0" max="8" step="0.5" value="4">
-                                    <span id="caption-style-outline-value" class="settings-hint">4.0</span>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Shadow</span>
-                                    <input type="range" id="caption-style-shadow" min="0" max="8" step="0.5" value="2">
-                                    <span id="caption-style-shadow-value" class="settings-hint">2.0</span>
-                                </label>
-                                <label class="caption-style-field">
-                                    <span>Background</span>
-                                    <input type="range" id="caption-style-background" min="0" max="100" step="5" value="50">
-                                    <span id="caption-style-background-value" class="settings-hint">50%</span>
-                                </label>
+                            <div class="reel-marker-panel">
+                                <div class="reel-marker-header">
+                                    <div>
+                                        <p class="reel-dock-kicker">Marker Import</p>
+                                        <h4>Clip Hotkey Moments</h4>
+                                    </div>
+                                    <div class="reel-marker-timing">
+                                        <label class="reel-streamer-inline">
+                                            <span>Pre-roll</span>
+                                            <input type="number" id="reel-marker-pre-roll" min="0" max="120" step="1" value="8">
+                                        </label>
+                                        <label class="reel-streamer-inline">
+                                            <span>Post-roll</span>
+                                            <input type="number" id="reel-marker-post-roll" min="1" max="240" step="1" value="22">
+                                        </label>
+                                    </div>
+                                </div>
+                                <textarea id="reel-stream-markers" rows="7" placeholder="Paste one marker per line. Examples:
+1:23:45 clean ace
+00:48:12 - huge reaction
+1h02m14s boss fight
+00:12:10 -> 00:12:46 full moment"></textarea>
+                                <div class="reel-streamer-actions">
+                                    <button type="button" class="secondary-btn" onclick="ReelMaker.saveSessionDetails()">Save Session</button>
+                                    <button type="button" class="secondary-btn" onclick="ReelMaker.importStreamMarkers()">Import Marker Clips</button>
+                                </div>
+                                <p id="reel-streamer-status" class="settings-hint">Paste hotkey/marker timestamps after loading the stream VOD to turn them into starter clips.</p>
                             </div>
-                            <div class="caption-style-toggles">
-                                <label class="toggle-label"><input type="checkbox" id="caption-style-bold" checked> <span class="toggle-text">Bold captions</span></label>
-                                <label class="toggle-label"><input type="checkbox" id="caption-style-karaoke" checked> <span class="toggle-text">Word-by-word highlight</span></label>
-                                <label class="toggle-label"><input type="checkbox" id="caption-style-all-caps"> <span class="toggle-text">All caps</span></label>
+                            <div class="reel-session-inbox-panel">
+                                <div class="reel-session-inbox-header">
+                                    <div>
+                                        <p class="reel-dock-kicker">Session Inbox</p>
+                                        <h4>Prep stream moments into shorts</h4>
+                                    </div>
+                                    <div class="reel-session-inbox-actions">
+                                        <label class="reel-streamer-field">
+                                            <span>Default Short Preset</span>
+                                            <select id="reel-short-preset-select" class="settings-select">
+                                                <option value="gameplay_focus">Gameplay Focus</option>
+                                                <option value="facecam_top">Facecam Top</option>
+                                                <option value="baked_hype">Baked Text Punch</option>
+                                            </select>
+                                        </label>
+                                        <button type="button" class="secondary-btn" id="reel-prepare-active-clip-btn" onclick="ReelMaker.prepareActiveClipAsShort()">Prep Active Clip</button>
+                                    </div>
+                                </div>
+                                <p id="reel-short-preset-summary" class="settings-hint">Choose a default short recipe for this stream session.</p>
+                                <div class="reel-session-inbox-batch-actions">
+                                    <button type="button" class="secondary-btn" id="reel-bulk-prepare-all-btn" onclick="ReelMaker.bulkPrepareShorts('all')">Prep All Inbox</button>
+                                    <button type="button" class="secondary-btn" id="reel-bulk-prepare-twitch-btn" onclick="ReelMaker.bulkPrepareShorts('twitch_clips')">Prep Twitch Clips</button>
+                                    <button type="button" class="secondary-btn" id="reel-bulk-queue-all-btn" onclick="ReelMaker.setLongformQueueForPrepared(true)">Queue All Prepared</button>
+                                    <button type="button" class="secondary-btn" id="reel-bulk-skip-all-btn" onclick="ReelMaker.setLongformQueueForPrepared(false)">Skip All Prepared</button>
+                                </div>
+                                <div id="reel-session-inbox-list" class="reel-session-inbox-list">
+                                    <div class="reel-session-inbox-empty">Imported Twitch clips, markers, and detected highlights will appear here.</div>
+                                </div>
+                                <p id="reel-session-inbox-status" class="settings-hint">Load a VOD and import Twitch clips, markers, or chapters to build this session inbox.</p>
                             </div>
                         </div>
-                        <div class="caption-speaker-panel" id="reel-speaker-panel"></div>
-                        <div class="caption-lines-container">
-                            <div class="caption-toolbar">
-                                <button class="secondary-btn" onclick="CaptionEditor.enableAll()">Enable All</button>
-                                <button class="secondary-btn" onclick="CaptionEditor.disableAll()">Disable All</button>
-                                <button onclick="CaptionEditor.save()">Save Captions</button>
-                            </div>
-                            <div id="reel-caption-lines" class="caption-lines"></div>
-                        </div>
+                        <p id="reel-local-file-restore" class="settings-hint hidden">This project used a local file that was not uploaded yet. Re-select the source file to keep editing or render the timeline.</p>
+                        <div id="reel-step1-error" class="error-msg hidden"></div>
                     </div>
-                    <div id="reel-step3-error" class="error-msg hidden"></div>
-                </div>
-            </section>
+                </section>
 
-            <!-- Step R4: Export -->
-            <section class="step disabled" id="reel-step-4">
-                <h2><span class="step-num">4</span> Export</h2>
-                <div class="step-content">
-                    <p class="settings-hint">Exports a vertical 9:16 short-form video. Saved captions are burned in automatically if present. Primary export controls live in the toolbar above.</p>
-                    <div id="reel-export-progress" class="hidden">
-                        <div class="progress-bar-bg">
-                            <div id="reel-export-bar" class="progress-bar-fill" style="width:0%"></div>
+                <aside id="reel-clip-inspector" class="reel-clip-inspector hidden">
+                    <div class="reel-clip-inspector-header">
+                        <div>
+                            <p class="reel-clip-inspector-kicker">Properties</p>
+                            <h3 id="reel-inspector-heading">No clip selected</h3>
                         </div>
-                        <p id="reel-export-status" class="info-label">Starting...</p>
+                        <span id="reel-inspector-source-kind" class="reel-inspector-pill hidden"></span>
                     </div>
-                    <div id="reel-export-download" class="hidden"></div>
-                    <div id="reel-step4-error" class="error-msg hidden"></div>
-                </div>
-            </section>
+                    <div class="reel-clip-inspector-grid">
+                        <label class="reel-inspector-field">
+                            <span>Title</span>
+                            <input type="text" id="reel-clip-title-input" placeholder="Clip title" spellcheck="false">
+                        </label>
+                        <label class="reel-inspector-field">
+                            <span>Range</span>
+                            <div class="reel-inspector-range-row">
+                                <input type="text" id="reel-inspector-range" readonly>
+                                <button type="button" class="secondary-btn reel-copy-tc-btn"
+                                        id="reel-copy-timecode-btn" title="Copy start timestamp to clipboard">Copy</button>
+                            </div>
+                        </label>
+                        <label class="reel-inspector-field">
+                            <span>Duration</span>
+                            <input type="text" id="reel-inspector-duration" readonly>
+                        </label>
+                        <label class="reel-inspector-field">
+                            <span>Short Setup</span>
+                            <input type="text" id="reel-inspector-short-preset" readonly placeholder="Not prepared as a short yet">
+                        </label>
+                        <label class="reel-inspector-field reel-inspector-field-wide">
+                            <span>Notes</span>
+                            <textarea id="reel-clip-note-input" rows="4" placeholder="Keep pacing notes, hook ideas, caption reminders, or edit notes..."></textarea>
+                        </label>
+                        <label class="reel-inspector-field">
+                            <span>Fade In (s)</span>
+                            <input type="number" id="reel-inspector-fade-in" min="0" max="5" step="0.1" value="0" placeholder="0">
+                        </label>
+                        <label class="reel-inspector-field">
+                            <span>Fade Out (s)</span>
+                            <input type="number" id="reel-inspector-fade-out" min="0" max="5" step="0.1" value="0" placeholder="0">
+                        </label>
+                    </div>
+                    <div class="reel-clip-inspector-actions">
+                        <button type="button" class="secondary-btn" id="reel-inspector-jump-btn">Jump to Clip</button>
+                        <button type="button" class="secondary-btn" id="reel-inspector-start-btn">Set Start at Playhead</button>
+                        <button type="button" class="secondary-btn" id="reel-inspector-end-btn">Set End at Playhead</button>
+                    </div>
+                </aside>
+
+                <!-- Step R3: Captions -->
+                <section class="step disabled" id="reel-step-3">
+                    <h2><span class="step-num">3</span> Captions</h2>
+                    <div class="step-content">
+                        <div id="reel-transcribe-controls">
+                            <div id="reel-hf-token-section">
+                                <p class="settings-hint">Speaker identification requires a free
+                                    <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">HuggingFace token</a>.
+                                    Without it, all text appears as one speaker.</p>
+                                <input type="text" id="reel-hf-token" placeholder="hf_xxxx... (optional)" spellcheck="false">
+                            </div>
+                        </div>
+
+                        <div id="reel-transcribe-progress" class="hidden">
+                            <div class="progress-bar-bg">
+                                <div id="reel-transcribe-bar" class="progress-bar-fill" style="width:0%"></div>
+                            </div>
+                            <p id="reel-transcribe-status" class="info-label">Starting...</p>
+                        </div>
+
+                        <!-- Caption editor (shown after transcription) -->
+                        <div id="reel-caption-editor" class="hidden">
+                            <div class="caption-style-panel">
+                                <div class="caption-style-header">
+                                    <div>
+                                        <p class="caption-style-kicker">Style</p>
+                                        <h3>Caption Look</h3>
+                                    </div>
+                                    <span id="caption-style-summary" class="settings-hint">Saved with this project.</span>
+                                </div>
+                                <div class="caption-style-grid">
+                                    <label class="caption-style-field">
+                                        <span>Preset</span>
+                                        <select id="caption-style-preset">
+                                            <option value="pathos_clean">Pathos Clean</option>
+                                            <option value="broadcast_bold">Broadcast Bold</option>
+                                            <option value="minimal_clean">Minimal Clean</option>
+                                        </select>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Font</span>
+                                        <select id="caption-style-font">
+                                            <option value="Arial">Arial</option>
+                                            <option value="Impact">Impact</option>
+                                            <option value="Tahoma">Tahoma</option>
+                                            <option value="Verdana">Verdana</option>
+                                            <option value="Trebuchet MS">Trebuchet MS</option>
+                                        </select>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Font Scale</span>
+                                        <input type="range" id="caption-style-scale" min="0.65" max="1.8" step="0.05" value="1">
+                                        <span id="caption-style-scale-value" class="settings-hint">1.00x</span>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Max Words</span>
+                                        <input type="range" id="caption-style-max-words" min="2" max="12" step="1" value="6">
+                                        <span id="caption-style-max-words-value" class="settings-hint">6 words</span>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Bottom Margin</span>
+                                        <input type="range" id="caption-style-margin" min="40" max="260" step="4" value="120">
+                                        <span id="caption-style-margin-value" class="settings-hint">120px</span>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Outline</span>
+                                        <input type="range" id="caption-style-outline" min="0" max="8" step="0.5" value="4">
+                                        <span id="caption-style-outline-value" class="settings-hint">4.0</span>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Shadow</span>
+                                        <input type="range" id="caption-style-shadow" min="0" max="8" step="0.5" value="2">
+                                        <span id="caption-style-shadow-value" class="settings-hint">2.0</span>
+                                    </label>
+                                    <label class="caption-style-field">
+                                        <span>Background</span>
+                                        <input type="range" id="caption-style-background" min="0" max="100" step="5" value="50">
+                                        <span id="caption-style-background-value" class="settings-hint">50%</span>
+                                    </label>
+                                </div>
+                                <div class="caption-style-toggles">
+                                    <label class="toggle-label"><input type="checkbox" id="caption-style-bold" checked> <span class="toggle-text">Bold captions</span></label>
+                                    <label class="toggle-label"><input type="checkbox" id="caption-style-karaoke" checked> <span class="toggle-text">Word-by-word highlight</span></label>
+                                    <label class="toggle-label"><input type="checkbox" id="caption-style-all-caps"> <span class="toggle-text">All caps</span></label>
+                                </div>
+                                <div class="caption-preview-card" id="caption-preview-card">
+                                    <span class="caption-preview-text" id="caption-preview-text">Sample caption text</span>
+                                </div>
+                            </div>
+                            <div class="caption-speaker-panel" id="reel-speaker-panel"></div>
+                            <div class="caption-lines-container">
+                                <div class="caption-toolbar">
+                                    <input type="search" id="caption-search" class="caption-search-input"
+                                           placeholder="Search lines..." oninput="CaptionEditor.filterLines(this.value)">
+                                    <span id="caption-stats" class="caption-stats"></span>
+                                    <label class="caption-shift-label" title="Shift all caption times (e.g. +0.5 or -1.2 seconds to fix sync)">
+                                        Shift:
+                                        <input type="number" id="caption-time-shift" class="caption-shift-input"
+                                               step="0.1" placeholder="0.0">s
+                                        <button type="button" class="secondary-btn" onclick="CaptionEditor.applyTimeShift()">Apply</button>
+                                        <button type="button" class="secondary-btn" id="caption-auto-sync-btn"
+                                                onclick="CaptionEditor.autoSync()" title="Detect first speech in video and suggest a shift to fix caption timing">Auto-Sync</button>
+                                    </label>
+                                    <label class="caption-shift-label" title="Replace a word that Whisper got consistently wrong">
+                                        Replace:
+                                        <input type="text" id="caption-replace-find" class="caption-shift-input" style="width:80px" placeholder="find">
+                                        <span style="color:var(--text-muted)">→</span>
+                                        <input type="text" id="caption-replace-with" class="caption-shift-input" style="width:80px" placeholder="replace">
+                                        <button type="button" class="secondary-btn" onclick="CaptionEditor.replaceAll()">All</button>
+                                    </label>
+                                    <button class="secondary-btn" onclick="CaptionEditor.enableAll()">Enable All</button>
+                                    <button class="secondary-btn" onclick="CaptionEditor.disableAll()">Disable All</button>
+                                    <button onclick="CaptionEditor.save()">Save Captions</button>
+                                    <a id="caption-srt-download" class="secondary-btn" style="display:none" download>↓ SRT</a>
+                                    <a id="caption-ass-download" class="secondary-btn" style="display:none" download title="Download ASS subtitle file (VLC, YouTube, Premiere)">↓ ASS</a>
+                                </div>
+                                <div id="reel-caption-lines" class="caption-lines"></div>
+                            </div>
+                        </div>
+                        <div id="reel-step3-error" class="error-msg hidden"></div>
+                    </div>
+                </section>
+
+                <!-- Step R4: Export -->
+                <section class="step disabled" id="reel-step-4">
+                    <h2><span class="step-num">4</span> Export</h2>
+                    <div class="step-content">
+                        <p class="settings-hint">Exports an MP4 using the selected format preset above. Pick Shorts/Reels, 4:5 feed, square, or 16:9 landscape. Use <strong>Burn Captions</strong> in the toolbar to control whether captions are baked in, or export clean and use the <strong>↓ SRT</strong> / <strong>↓ ASS</strong> files separately. The horizontal build uses clips you already prepped as shorts.</p>
+                        <p id="reel-export-composition-hint" class="settings-hint">Gameplay Focus drives the export framing and burned caption placement for this render.</p>
+                        <div class="reel-streamer-actions" style="margin-bottom:12px;">
+                            <button type="button" class="secondary-btn" id="reel-create-longform-btn" onclick="ReelMaker.createLongformVersion()">Build Longform from Prepared Shorts</button>
+                        </div>
+                        <div id="reel-export-progress" class="hidden">
+                            <div class="progress-bar-bg">
+                                <div id="reel-export-bar" class="progress-bar-fill" style="width:0%"></div>
+                            </div>
+                            <p id="reel-export-status" class="info-label">Starting...</p>
+                        </div>
+                        <div id="reel-export-download" class="hidden"></div>
+                        <div id="reel-step4-error" class="error-msg hidden"></div>
+                    </div>
+                </section>
+            </div>
         </div>
+
+        <div class="reel-statusbar">
+            <span id="reel-status-project">No project loaded</span>
+            <span id="reel-status-selection">No clip selected</span>
+            <span id="reel-status-preview">Source monitor</span>
+            <span id="reel-status-format">1080x1920 MP4</span>
+            <span id="reel-status-runtime">0 clips</span>
         </div>
     </main>
 
@@ -756,6 +1148,7 @@
 
     <script src="/static/js/crop.js"></script>
     <script src="/static/js/app.js"></script>
+    <script src="/static/js/auth.js"></script>
     <script src="/static/js/reel.js"></script>
     <script src="/static/js/caption-editor.js"></script>
     <script>
@@ -764,6 +1157,9 @@
             const reelWorkflow = document.getElementById('reel-workflow');
             const alertBtn = document.getElementById('mode-alert-btn');
             const reelBtn = document.getElementById('mode-reel-btn');
+            if (window.location.hash !== `#${mode}`) {
+                window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#${mode}`);
+            }
             if (mode === 'reel') {
                 alertWorkflow.classList.add('hidden');
                 reelWorkflow.classList.remove('hidden');
@@ -775,6 +1171,12 @@
                 reelBtn.classList.remove('active');
                 alertBtn.classList.add('active');
             }
+            App.checkOnboardingForMode(mode);
+        }
+
+        const initialMode = window.location.hash.replace(/^#/, "");
+        if (initialMode === "reel" || initialMode === "alert") {
+            switchMode(initialMode);
         }
     </script>
 </body>
