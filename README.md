@@ -1,192 +1,233 @@
 ```text
-    _    _           _   _      _    _           _   _ 
+    _    _           _   _      _    _           _   _
    / \  | | ___ _ __| |_| |    / \  | | ___ _ __| |_| |
   / _ \ | |/ _ \ '__| __| |   / _ \ | |/ _ \ '__| __| |
  / ___ \| |  __/ |  | |_|_|  / ___ \| |  __/ |  | |_|_|
 /_/   \_\_|\___|_|   \__(_) /_/   \_\_|\___|_|   \__(_)
 ```
 
-**The desktop tool for creating stream alerts and vertical reels from YouTube, Instagram, TikTok, and local files.**
+**Desktop app for stream alerts and a streamer-focused Video Editor workflow.**
 
-Download clips or load local media, trim and crop with precision, apply audio options, and export polished alert videos quickly with a workflow built for one-click reliability.
+Alert! Alert! now has two real products in one app:
 
-![Python](https://img.shields.io/badge/Python-3.9+-blue?logo=python&logoColor=white)
+- `Alert Creator` for quick alert clips, trims, crops, audio treatment, and exports.
+- `Video Editor` for turning stream VOD moments into shortform clips and then reusing those edits for longform YouTube cuts.
+
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-Backend-green?logo=flask&logoColor=white)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-orange?logo=ffmpeg&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
 
-## Features
+## What It Does
 
-### Video Processing
-- **Multi-Platform Support** — Download from YouTube, Instagram, and TikTok
-- **Smart URL Cleaning** — Automatically strips playlist/radio parameters from YouTube URLs
-- **Live Video Preview** — Real-time video playback with audio in the crop preview
-- **Auto-Populated Timestamps** — Start defaults to 0:00, end defaults to full video duration
-- **Precision Trimming** — Fine-tune start and end times with dual sliders after download
-- **Multiple Aspect Ratios** — Export in 1:1 (square), 16:9 (widescreen), 9:16 (vertical/TikTok), or 4:3
-- **Resolution Options** — Export at 480p, 720p, or 1080p
-- **Interactive Crop** — Drag to position your crop area and zoom as needed
+### Alert Creator
+- Load a remote video URL or local media file.
+- Trim, crop, zoom, choose aspect ratios, and export alerts fast.
+- Use separate audio, normalization, fades, and image override modes.
+- Run Windows one-click runtime install for `ffmpeg`, `ffprobe`, and `yt-dlp`.
 
-### Reel Maker
-- **Multi-Clip VOD Projects** — Build reels from multiple timestamp ranges in one project
-- **Stream-First Local VOD Flow** — Keep the local source in the browser until clip extraction starts
-- **Auto Captions + Speaker Colors** — Generate captions, edit text, and color-code speakers
-- **Vertical Reel Export** — Render 9:16 reels at 1080x1920, 1440x2560, or 2160x3840
+### Video Editor
+- Create multi-clip VOD projects for stream sessions.
+- Use shared Twitch auth via `auth.deutschmark.online`.
+- Pull recent Twitch VODs, Twitch markers, and Twitch clips.
+- Import manual timestamps from any hotkey or marker workflow.
+- Surface all those moments in a `Session Inbox`.
+- Prep moments as shorts with streamer-specific presets:
+  - `Gameplay Focus`
+  - `Facecam Top`
+  - `Baked Text Punch`
+- Batch-prep a whole inbox and batch-queue prepared shorts for longform.
+- Stitch clips into a preview sequence, transcribe captions, and export.
+- Build a horizontal longform derivative from queued prepared shorts.
+- Use a saved facecam guide instead of auto-detection for recurring stream layouts.
 
-### Audio
-- **Audio Normalization** — Automatic loudness normalization (EBU R128, -16 LUFS), toggleable
-- **Separate Audio Source** — Use audio from a different URL or local file
-- **Fade Control** — Configure fade mode per clip and fade duration globally
-- **High-Quality Output** — Lossless audio processing pipeline with single-encode AAC at 192kbps
+### Captioning
+- 1-click caption dependency install for `faster-whisper` + `torch`.
+- Managed captioning virtualenv owned by the app.
+- Optional `pyannote.audio` install for diarization.
+- Editable captions with speaker colors, ASS/SRT export, and burn-in control.
 
-### User Experience
-- **Muted Slate UI** — Modern, low-glare interface optimized for long sessions
-- **Helpful Error Messages** — Clear instructions when dependencies or downloads fail
-- **Dependency Status + Auto Install** — App auto-installs missing FFmpeg/yt-dlp on first run (with manual fallback)
-- **Workflow-Native Settings** — Output, audio, dependency, and app controls live in relevant workflow steps
-- **End Buffer** — Configurable still frame buffer at the end (0-5 seconds)
-- **Smart Timestamps** — Type `90` and it auto-formats to `1:30`
-- **Persistent Settings** — Preferences are saved locally
-- **Standalone EXE** — Single executable file, no installer required
+---
+
+## Streamer Beta Flow
+
+The current intended beta loop is:
+
+1. Connect Twitch.
+2. Load a recent VOD or local stream recording.
+3. Save session metadata.
+4. Import Twitch markers, Twitch clips, or manual timestamps.
+5. Prep the surfaced moments into shorts.
+6. Stitch the chosen clips into a shortform sequence.
+7. Transcribe and style captions.
+8. Export shortform.
+9. Queue prepared shorts for longform.
+10. Build and export the longform derivative.
+
+The Video Editor now includes a `Beta Status` panel that tracks this flow per project and shows the next blocker directly in the UI.
+
+---
+
+## Current Beta Status
+
+### Working Now
+- Alert Creator core trim/crop/export workflow.
+- Desktop shell with embedded app window.
+- Shared Twitch login in the desktop app.
+- Twitch VOD listing.
+- Twitch marker import.
+- Twitch clip import mapped back to VOD offsets when Twitch provides them.
+- Manual marker import.
+- Session Inbox and short prep flow.
+- Batch short prep and batch longform queue actions.
+- One-click caption dependency install path in the app.
+- Caption editing and burned-caption export.
+- Popular export formats:
+  - `Shorts / Reels`
+  - `4:5 Feed`
+  - `Square`
+  - `16:9 Landscape`
+- Composition-aware short exports.
+- Saved facecam guide for `Facecam Top`.
+- Longform project creation from queued prepared shorts.
+
+### Still Incomplete
+- True automatic facecam detection. This is intentionally not the beta path anymore.
+- Automatic “best moments” ranking beyond imported Twitch markers/clips/source moments.
+- Advanced multi-session longform assembly.
+- Full automated browser regression coverage.
+- Live deployment verification from this repository alone. Shared auth depends on `auth.deutschmark.online`.
 
 ---
 
 ## Requirements
 
-### System Dependencies
-You need **Python 3.10 or newer** to run or build this project.
+### Runtime
+- Windows is the primary desktop target.
+- Python `3.10+` is recommended when running from source.
+- Internet access is required for:
+  - one-click runtime install
+  - one-click caption install
+  - Twitch auth
+  - remote VOD/clip loading
 
-### EXE Dependency Behavior (One-Click)
-- On Windows, `alert-alert.exe` launches a standalone desktop window and auto-checks dependencies at startup.
-- If `ffmpeg`, `ffprobe`, `yt-dlp`, or `deno` are missing, the app shows a consent prompt before downloading them into a user-local runtime folder (no admin required).
-- Manual fallback remains available in **Dependency Setup (top-right)**.
-- Auto-install requires outbound internet access to GitHub and FFmpeg mirrors.
-- `deno` remains **optional** and only helps `yt-dlp` handle certain advanced YouTube challenge/protection scenarios.
-- If `deno` auto-install fails, the app still works for local files and most URLs.
+### Shared Twitch Auth
+Shared Twitch auth is wired for:
 
-### Step-by-Step Installation Guide (For Beginners)
+- `http://localhost:<port>`
+- approved `deutschmark.online` origins
 
-If you are new to installing developer tools, follow these steps exactly:
+The desktop shell starts the app on `localhost` and keeps `auth.deutschmark.online` plus Twitch OAuth inside the app window.
 
-#### 1. Install Python
-1. Download Python from [python.org](https://www.python.org/downloads/).
-2. Run the installer.
-3. **IMPORTANT:** Check **"Add Python to PATH"** before clicking "Install Now".
-4. Open Command Prompt as Administrator.
-5. Run `python --version` and confirm Python 3.10+.
+---
 
-#### 2. Install FFmpeg
-> If you are running the EXE, this is optional because the app can auto-install it.
-1. Open Command Prompt as Administrator.
-2. Run:
-   ```cmd
-   winget install Gyan.FFmpeg
-   ```
-3. Wait for completion.
+## One-Click Installs
 
-#### 3. Install yt-dlp
-> If you are running the EXE, this is optional because the app can auto-install it.
-1. In Command Prompt, run:
-   ```cmd
-   pip install -U yt-dlp
-   ```
-2. Restart your computer, then launch `alert-alert.exe` again.
+### Runtime Tools
+On Windows, the app can auto-install missing runtime tools into a user-local runtime folder:
 
-#### 4. Troubleshooting
-If you see errors like `'pip' is not recognized` or `'winget' is not recognized`:
-- **For pip:** Reinstall Python and ensure **Add Python to PATH** is checked.
-- **For winget:** Update Windows and install [App Installer](https://apps.microsoft.com/store/detail/app-installer/9NBLGGH4NNS1) from Microsoft Store.
+- `ffmpeg`
+- `ffprobe`
+- `yt-dlp`
+- optional `deno`
 
-> **Tip:** Use **Dependency Setup** (top-right) to view dependency health and troubleshooting actions.
+No admin install is required for that managed runtime path.
 
-### Python Dependencies (for running from source)
+### Caption Dependencies
+The app now installs caption dependencies into its own managed captioning virtualenv:
 
-```bash
-pip install -r requirements.txt
-```
+- `faster-whisper`
+- `torch`
+- optional `pyannote.audio`
 
-This installs the desktop shell dependency (`PySide6`) as well as the Python backend.
+The caption installer is exposed in the app’s dependency setup and is intended to be the normal path, not a manual `pip` workflow.
 
 ---
 
 ## Quick Start
 
-### Option 1: Download the EXE (Recommended)
+### Option 1: Download the EXE
 
-1. Download `alert-alert.exe` from [Releases](https://github.com/thedeutschmark/alert-alert/releases)
-2. Double-click to run
-3. On first launch, the app may briefly auto-install missing dependencies
-4. The app opens in its own desktop window
-5. If you use documentation or external links, they open in your default browser
+1. Download `alert-alert.exe` from [Releases](https://github.com/thedeutschmark/alert-alert/releases).
+2. Launch it.
+3. Allow runtime install if prompted.
+4. Use `Dependency Setup` if you need to repair runtime or caption dependencies.
 
-### Option 2: Run from Source
+### Option 2: Run From Source
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/thedeutschmark/alert-alert.git
-   cd alert-alert
-   ```
+```bash
+git clone https://github.com/thedeutschmark/alert-alert.git
+cd alert-alert
+pip install -r requirements.txt
+python desktop.py
+```
 
-2. **Install Python dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+Browser mode for development:
 
-3. **Run the desktop app**
-   ```bash
-   python desktop.py
-   ```
+```bash
+python app.py
+```
 
-4. **Optional: browser mode for development**
-   ```bash
-   python app.py
-   ```
+The local app runs on `http://localhost:3000` by default unless overridden by environment variables.
 
 ---
 
-## How to Use
+## How To Test The Beta
 
-### Step 1: Enter Video URL
-- Paste a video URL (YouTube, Instagram, TikTok)
-- Click **Load Video** to validate and download
-- Use **Dependency Setup & Troubleshooting** in this step if dependencies are missing
+### Alert Creator
+1. Load a URL or local file.
+2. Trim and crop it.
+3. Process the alert.
+4. Download the export.
 
-### Step 2: Download & Preview
-- After video load, configure optional audio and image features
-- Choose separate audio source (URL or local file) if needed
-- Set audio start/end for sync and timing
+### Video Editor
+1. Open `Video Editor`.
+2. Log in with Twitch.
+3. Refresh VODs and load one.
+4. Import Twitch markers or Twitch clips.
+5. Optionally paste manual timestamps too.
+6. Set the facecam guide if the stream layout has a consistent camera box.
+7. Prep moments into shorts.
+8. Download and stitch clips.
+9. Run captions.
+10. Export shortform.
+11. Queue prepared shorts for longform.
+12. Build the longform version.
+13. Export the longform project.
 
-### Step 3: Crop & Adjust
-- Drag video to position crop
-- Adjust zoom and trim start/end
-- Choose aspect ratio and optional audio fade mode
+If you just want the fastest real test, use:
 
-### Step 4: Process & Export
-- Open **Output Settings** to choose resolution and end buffer
-- Click **Process Video**
-- Download the finished alert once processing completes
-
----
-
-## Settings
-
-Settings are integrated directly into workflow steps and can also be opened from the top-right quick buttons.
-
-| Setting | Options | Description |
-|---------|---------|-------------|
-| **Resolution** | 480p, 720p, 1080p | Output video resolution (Step 4) |
-| **End Buffer** | 0-5 seconds | Adds still frame buffer at clip end (Step 4) |
-| **Normalize Audio** | On/Off | EBU R128 loudness normalization (Step 3) |
-| **Audio Fade Length** | 0.20s, 0.35s, 0.50s, 1.00s | Fade duration used by clip fade mode (Step 3) |
-| **Dependencies** | Auto/manual | Runtime install status and repair actions (Dependency Setup, top-right) |
+1. `Load Selected VOD`
+2. `Import Twitch Markers`
+3. `Prep All Inbox`
+4. `Download Clips`
+5. `Transcribe`
+6. `Render Video`
+7. `Build Longform from Prepared Shorts`
 
 ---
 
-## Building the EXE
+## Facecam Guide
 
-Use the checked-in spec file and build script. The app now boots from [desktop.py](desktop.py), which embeds the current UI in a native desktop window and starts the shared Flask backend from [app.py](app.py). Rebuild after code changes so the shell and backend stay in sync.
+The beta path for facecam handling is user-defined layout memory, not detection.
+
+You can now:
+
+- enable a facecam guide
+- drag and resize it in `Source Monitor`
+- apply quick corner presets
+- save it with the project
+- remember it per channel locally
+
+`Facecam Top` exports use that saved guide to bias framing and caption safe area.
+
+---
+
+## Building The EXE
+
+Use the checked-in spec file and build script.
 
 ### Windows
 
@@ -194,11 +235,9 @@ Use the checked-in spec file and build script. The app now boots from [desktop.p
 build.bat
 ```
 
-This runs PyInstaller against `AlertCreator.spec` and writes the standalone desktop executable to `dist\alert-alert.exe`.
+This builds the desktop executable to `dist\alert-alert.exe`.
 
 ### Manual PyInstaller Build
-
-If you are not using `build.bat`, use the spec file directly:
 
 ```bash
 pip install pyinstaller
@@ -206,47 +245,40 @@ pip install PySide6
 python -m PyInstaller --clean --noconfirm AlertCreator.spec
 ```
 
-The output is generated in the `dist/` folder.
-
 ---
 
 ## Troubleshooting
 
-### "FFmpeg not found"
-**Solution:** In **Dependency Setup (top-right)**, click **Auto Install Missing** first. If needed, install manually:
-```bash
-winget install Gyan.FFmpeg
-```
-Or download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
+### Caption install still fails
+- Check internet access.
+- Check antivirus/quarantine behavior.
+- Retry from `Dependency Setup`.
+- Make sure a matching Python runtime is available when running from source.
 
-### "yt-dlp not found"
-**Solution:** In **Dependency Setup (top-right)**, click **Auto Install Missing** first. If needed, install manually:
-```bash
-pip install -U yt-dlp
-```
+### Shared Twitch auth does not work
+- Run the app on `http://localhost:<port>` or an approved `deutschmark.online` origin.
+- Retry the login flow inside the desktop app.
+- Confirm `auth.deutschmark.online` is reachable from your machine.
 
-### Video URL not working
-- Ensure the URL is a direct video link (not a playlist)
-- The app auto-cleans YouTube playlist/radio params
-- If YouTube protection blocks formats, update yt-dlp and retry
-- After you allow auto-download, the app auto-attempts optional `deno`; if protected YouTube URLs still fail, install/reinstall with `winget install DenoLand.Deno` and retry
+### Twitch clips do not import
+- Twitch clips only map back when Twitch provides usable `vod_offset` data.
+- If offsets are missing or tied to a different VOD, those clips are skipped.
 
-### Port 5000 already in use
-Another application is already using port 5000. Close it and restart Alert! Alert!.
+### Port conflict
+The app defaults to `localhost:3000` and can search for another open localhost port automatically. If startup still fails, close the conflicting process and relaunch.
 
-### Auto-install fails repeatedly
-- Verify internet connectivity and retry from **Dependency Setup** (top-right)
-- Check firewall/proxy/enterprise policies for GitHub and FFmpeg hosts
-- Check antivirus quarantine history and allow the app runtime directory
-- Install dependencies manually, then restart the app
+### YouTube or remote URL issues
+- Update `yt-dlp`.
+- Retry after runtime auto-install/update.
+- Install optional `deno` if YouTube challenge handling still fails.
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License — see [LICENSE](LICENSE).
 
-Third-party runtime tool notices are documented in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+Third-party runtime notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 
 ---
 
@@ -255,12 +287,7 @@ Third-party runtime tool notices are documented in [THIRD_PARTY_NOTICES.txt](THI
 Created by **deutschmark**
 
 Built with:
-- [Flask](https://flask.palletsprojects.com/) — Local API/backend
-- [FFmpeg](https://ffmpeg.org/) — Video processing
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — Video download engine
-- [PySide6](https://doc.qt.io/qtforpython/) — Native desktop shell and embedded web view
-- [Waitress](https://docs.pylonsproject.org/projects/waitress/) — Production WSGI server
-
----
-
-**Made for streamers**
+- [Flask](https://flask.palletsprojects.com/)
+- [FFmpeg](https://ffmpeg.org/)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
+- [PySide6](https://doc.qt.io/qtforpython-6/)

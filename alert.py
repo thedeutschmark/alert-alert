@@ -43,7 +43,7 @@ def register_alert_routes(app):
 
     # ── Download clip ───────────────────────────────────────────────
 
-    def run_download_pipeline(job_id, url, start_sec, end_sec, use_separate_audio=False,
+    def run_download_pipeline(job_id, url, start_sec, end_sec=None, use_separate_audio=False,
                               audio_url="", audio_start_sec=0, audio_end_sec=0):
         """Run the download pipeline in a background thread."""
         try:
@@ -139,7 +139,7 @@ def register_alert_routes(app):
                 if profile.get("sort"):
                     cmd.extend(["-S", profile["sort"]])
                 cmd.extend(profile.get("extra", []))
-                if use_sections:
+                if use_sections and end_sec is not None and end_sec > start_sec:
                     cmd.extend(["--download-sections", f"*{start_sec}-{end_sec}"])
                 if FFMPEG_DIR:
                     cmd.extend(["--ffmpeg-location", FFMPEG_DIR])
@@ -147,7 +147,8 @@ def register_alert_routes(app):
                 return cmd
 
             # For full downloads (start at 0), avoid section-based ffmpeg URL reads.
-            section_modes = [True, False] if start_sec > 0 else [False]
+            can_section_download = end_sec is not None and end_sec > start_sec
+            section_modes = [True, False] if start_sec > 0 and can_section_download else [False]
             profiles = build_profiles()
             total_attempts = len(section_modes) * len(profiles)
             attempt_idx = 0
@@ -262,6 +263,7 @@ def register_alert_routes(app):
         separate_audio_url="",
         separate_audio_start=None,
         separate_audio_end=None,
+        export_preset="stream_alert",
     ):
         """Run the full ffmpeg pipeline in a background thread.
 
@@ -282,7 +284,16 @@ def register_alert_routes(app):
         - resolution: base output size (width for wide, height for tall)
         - buffer_duration: seconds of still frame buffer at end
         - normalize_audio: whether to apply loudness normalization
+        - export_preset: named quality preset for final encode
         """
+        _EXPORT_PRESETS = {
+            "stream_alert": ("23", "medium"),
+            "tiktok_reel":  ("23", "fast"),
+            "discord_clip": ("28", "veryfast"),
+            "quality":      ("18", "slow"),
+        }
+        enc_crf, enc_speed = _EXPORT_PRESETS.get(export_preset, ("23", "medium"))
+
         # Calculate output dimensions based on crop aspect ratio
         crop_aspect = 1.0
         if crop_width and crop_height:
@@ -642,7 +653,7 @@ def register_alert_routes(app):
             output_file = str(get_output_dir() / f"alert_{job_id}.mp4")
             run_ffmpeg([
                 FFMPEG, "-i", final_input,
-                "-c:v", "libx264", "-crf", "23", "-preset", "medium",
+                "-c:v", "libx264", "-crf", enc_crf, "-preset", enc_speed,
                 "-c:a", "aac", "-b:a", "192k",
                 "-movflags", "+faststart",
                 "-y", output_file,
@@ -663,10 +674,10 @@ def register_alert_routes(app):
 
     @app.route("/api/download", methods=["POST"])
     def download_clip():
-        data = request.get_json()
+        data = request.get_json(silent=True) or {}
         url = data.get("url", "").strip()
-        start = data.get("start", "").strip()
-        end = data.get("end", "").strip()
+        start = str(data.get("start", "0:00.00")).strip()
+        end = str(data.get("end", "")).strip()
 
         url = clean_video_url(url)
 
@@ -676,13 +687,17 @@ def register_alert_routes(app):
         audio_end = data.get("audio_end", "").strip()
         use_separate_audio = bool(audio_url and audio_start and audio_end)
 
-        if not url or not start or not end:
-            return jsonify({"error": "Missing url, start, or end"}), 400
+        if not url:
+            return jsonify({"error": "Missing url"}), 400
 
-        start_sec = parse_timestamp_to_seconds(start)
-        end_sec = parse_timestamp_to_seconds(end)
-        if end_sec <= start_sec:
-            return jsonify({"error": "End time must be after start time"}), 400
+        start_sec = parse_timestamp_to_seconds(start) if start else 0.0
+        end_sec = None
+        if end:
+            end_sec = parse_timestamp_to_seconds(end)
+            if end_sec <= start_sec:
+                return jsonify({"error": "End time must be after start time"}), 400
+        elif start_sec > 0:
+            return jsonify({"error": "End time is required when trimming from a non-zero start"}), 400
 
         audio_start_sec = 0
         audio_end_sec = 0
@@ -695,7 +710,8 @@ def register_alert_routes(app):
         job_id = uuid.uuid4().hex[:8]
 
         jobs[job_id] = {"status": "downloading", "progress": 0, "stage": "Downloading video clip..."}
-        print(f"Starting download job {job_id} for {url} ({start}-{end})")
+        range_label = f"{start or '0:00.00'}-{end}" if end else "full source"
+        print(f"Starting download job {job_id} for {url} ({range_label})")
 
         thread = threading.Thread(
             target=run_download_pipeline,
@@ -924,6 +940,10 @@ def register_alert_routes(app):
         if audio_fade_duration not in allowed_fade_durations:
             audio_fade_duration = 0.35
 
+        export_preset = str(settings.get("exportPreset", "stream_alert")).strip().lower()
+        if export_preset not in {"stream_alert", "tiktok_reel", "discord_clip", "quality"}:
+            export_preset = "stream_alert"
+
         if not job_id or not is_safe_job_id(job_id):
             return jsonify({"error": "Invalid job_id"}), 400
 
@@ -1016,6 +1036,7 @@ def register_alert_routes(app):
                 "separate_audio_url": audio_url,
                 "separate_audio_start": audio_start_sec,
                 "separate_audio_end": audio_end_sec,
+                "export_preset": export_preset,
             },
             daemon=True,
         )

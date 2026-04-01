@@ -29,11 +29,84 @@ const CaptionEditor = (() => {
 
     // ── Init ──────────────────────────────────────────────────────
 
+    let activeCaptionLineIndex = -1;
+
     async function init(pId) {
         projectId = pId;
         dirty = false;
         bindStyleControls();
+        bindCaptionKeyNav();
+        bindPlaybackSync();
         await loadCaptions();
+    }
+
+    function bindPlaybackSync() {
+        const video = document.getElementById("reel-preview-video");
+        if (!video || video._captionSyncBound) return;
+        video._captionSyncBound = true;
+        video.addEventListener("timeupdate", () => {
+            if (!lines.length) return;
+            const t = video.currentTime;
+            const idx = lines.findIndex((l) => t >= l.start - 0.05 && t <= l.end + 0.05);
+            if (idx >= 0 && idx !== activeCaptionLineIndex) {
+                activeCaptionLineIndex = idx;
+                const container = $("reel-caption-lines");
+                if (!container) return;
+                container.querySelectorAll(".caption-line").forEach((el, i) => {
+                    el.classList.toggle("caption-line-active", i === idx);
+                });
+                const activeEl = container.querySelectorAll(".caption-line")[idx];
+                if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
+            }
+        });
+    }
+
+    function bindCaptionKeyNav() {
+        document.addEventListener("keydown", (e) => {
+            const editor = $("reel-caption-editor");
+            if (!editor || editor.classList.contains("hidden")) return;
+            const tag = (e.target.tagName || "").toUpperCase();
+            if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+            if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                e.preventDefault();
+                save();
+                return;
+            }
+
+            if (e.key === "J" || e.key === "j") {
+                e.preventDefault();
+                seekToLine(activeCaptionLineIndex + 1);
+            } else if (e.key === "K" || e.key === "k") {
+                e.preventDefault();
+                seekToLine(activeCaptionLineIndex - 1);
+            } else if (e.key === "T" || e.key === "t") {
+                e.preventDefault();
+                if (activeCaptionLineIndex >= 0 && activeCaptionLineIndex < lines.length) {
+                    toggleLine(activeCaptionLineIndex);
+                }
+            }
+        });
+    }
+
+    function seekToLine(index) {
+        if (lines.length === 0) return;
+        index = Math.max(0, Math.min(lines.length - 1, index));
+        activeCaptionLineIndex = index;
+        const line = lines[index];
+        const video = document.getElementById("reel-preview-video");
+        if (video && Number.isFinite(line.start)) {
+            video.currentTime = line.start;
+        }
+        // Highlight the active line
+        const container = $("reel-caption-lines");
+        if (container) {
+            container.querySelectorAll(".caption-line").forEach((el, i) => {
+                el.classList.toggle("caption-line-active", i === index);
+            });
+            const activeEl = container.querySelectorAll(".caption-line")[index];
+            if (activeEl) activeEl.scrollIntoView({ block: "nearest" });
+        }
     }
 
     function reset() {
@@ -68,6 +141,16 @@ const CaptionEditor = (() => {
             renderStylePanel();
             renderSpeakerPanel();
             renderLineList();
+            const srtLink = $("caption-srt-download");
+            if (srtLink && projectId) {
+                srtLink.href = `/api/reel/captions/${projectId}/srt`;
+                srtLink.style.display = "";
+            }
+            const assLink = $("caption-ass-download");
+            if (assLink && projectId) {
+                assLink.href = `/api/reel/captions/${projectId}/ass`;
+                assLink.style.display = "";
+            }
         } catch (e) {
             console.error("Failed to load captions:", e);
         }
@@ -212,6 +295,40 @@ const CaptionEditor = (() => {
             const presetLabel = $("caption-style-preset")?.selectedOptions?.[0]?.textContent || "Custom";
             summary.textContent = `${presetLabel} · ${style.font_family || "Arial"} · ${Number(style.max_words || 6)} words/line`;
         }
+
+        updateCaptionPreview();
+    }
+
+    function updateCaptionPreview() {
+        const el = $("caption-preview-text");
+        if (!el) return;
+
+        const fontFamily = style.font_family || "Arial";
+        const fontScale  = Number(style.font_scale ?? 1);
+        const bold       = style.bold !== false;
+        const allCaps    = Boolean(style.all_caps);
+        const outline    = Number(style.outline ?? 4);
+        const bgOpacity  = Number(style.background_opacity ?? 50) / 100;
+
+        el.style.fontFamily  = fontFamily;
+        el.style.fontSize    = `${Math.round(fontScale * 17)}px`;
+        el.style.fontWeight  = bold ? "700" : "400";
+        el.style.textTransform = allCaps ? "uppercase" : "none";
+        el.style.backgroundColor = `rgba(0,0,0,${(bgOpacity * 0.85).toFixed(2)})`;
+        el.style.padding     = bgOpacity > 0 ? "4px 10px" : "4px 2px";
+
+        // Approximate outline with stacked text-shadow
+        if (outline > 0) {
+            const o = Math.max(1, Math.round(outline));
+            el.style.textShadow = [
+                `-${o}px -${o}px 0 #000`, `${o}px -${o}px 0 #000`,
+                `-${o}px  ${o}px 0 #000`, `${o}px  ${o}px 0 #000`,
+            ].join(", ");
+        } else {
+            el.style.textShadow = "none";
+        }
+
+        el.textContent = allCaps ? "SAMPLE CAPTION TEXT" : "Sample caption text";
     }
 
     function renderSpeakerPanel() {
@@ -256,6 +373,17 @@ const CaptionEditor = (() => {
 
             const lineText = line.words.map((w) => style.all_caps ? w.text.toUpperCase() : w.text).join(" ");
 
+            const wordChipParts = line.words.map((w, wIdx) => {
+                const txt = style.all_caps ? w.text.toUpperCase() : w.text;
+                const lowConf = typeof w.confidence === "number" && w.confidence < 0.7;
+                const confClass = lowConf ? " word-chip-low-conf" : "";
+                const confTitle = lowConf ? ` (confidence: ${Math.round(w.confidence * 100)}%)` : "";
+                const splitBtn = wIdx > 0
+                    ? `<button class="split-chip-btn" onclick="CaptionEditor.splitLineAt(${i},${wIdx})" title="Split line before '${escapeHtml(txt)}'">&#x2702;</button>`
+                    : "";
+                return splitBtn + `<span class="word-chip${confClass}" data-start="${w.start}" title="${formatTime(w.start)}${confTitle}">${escapeHtml(txt)}</span>`;
+            }).join("");
+
             el.innerHTML = `
                 <input type="checkbox" ${line.enabled ? "checked" : ""}
                        onchange="CaptionEditor.toggleLine(${i})">
@@ -266,9 +394,27 @@ const CaptionEditor = (() => {
                     ${speakerOptions}
                 </select>
                 <span class="speaker-color-dot" style="background:${speakerColor}"></span>
+                ${i < lines.length - 1 ? `<button class="merge-line-btn" onclick="CaptionEditor.mergeWithNext(${i})" title="Merge with next line">⤵</button>` : ""}
+                <div class="word-chips">${wordChipParts}</div>
             `;
+
+            // Attach word-chip click handlers for seek-on-click
+            el.querySelectorAll(".word-chip").forEach((chip) => {
+                chip.addEventListener("click", () => {
+                    const t = parseFloat(chip.dataset.start);
+                    if (!Number.isFinite(t)) return;
+                    const video = document.getElementById("reel-preview-video");
+                    if (video) {
+                        video.currentTime = t;
+                        video.play().catch(() => {});
+                    }
+                });
+            });
+
             container.appendChild(el);
         });
+
+        updateCaptionStats();
     }
 
     // ── Actions ───────────────────────────────────────────────────
@@ -330,6 +476,148 @@ const CaptionEditor = (() => {
         }
     }
 
+    function updateCaptionStats() {
+        const el = $("caption-stats");
+        if (!el) return;
+        const total = lines.length;
+        const enabled = lines.filter((l) => l.enabled !== false).length;
+        const allWords = lines.flatMap((l) => l.words);
+        const wordCount = allWords.length;
+        const uncertain = allWords.filter((w) => typeof w.confidence === "number" && w.confidence < 0.7).length;
+        el.textContent = `${enabled}/${total} lines · ${wordCount} words${uncertain > 0 ? ` · ⚠ ${uncertain} uncertain` : ""}`;
+    }
+
+    function filterLines(query) {
+        const q = (query || "").toLowerCase().trim();
+        const container = $("reel-caption-lines");
+        if (!container) return;
+        container.querySelectorAll(".caption-line").forEach((el) => {
+            if (!q) {
+                el.style.display = "";
+                return;
+            }
+            const text = el.querySelector(".line-text")?.value?.toLowerCase() || "";
+            el.style.display = text.includes(q) ? "" : "none";
+        });
+    }
+
+    function mergeWithNext(index) {
+        if (index < 0 || index >= lines.length - 1) return;
+        const a = lines[index];
+        const b = lines[index + 1];
+        a.words = [...a.words, ...b.words];
+        a.end = b.end;
+        lines.splice(index + 1, 1);
+        renderLineList();
+        markDirty();
+    }
+
+    function splitLineAt(lineIndex, wordIndex) {
+        if (lineIndex < 0 || lineIndex >= lines.length) return;
+        const line = lines[lineIndex];
+        if (wordIndex <= 0 || wordIndex >= line.words.length) return;
+        const firstWords = line.words.slice(0, wordIndex);
+        const secondWords = line.words.slice(wordIndex);
+        const firstLine = {
+            words: firstWords,
+            speaker: line.speaker,
+            start: firstWords[0].start,
+            end: firstWords[firstWords.length - 1].end,
+            enabled: line.enabled,
+        };
+        const secondLine = {
+            words: secondWords,
+            speaker: line.speaker,
+            start: secondWords[0].start,
+            end: secondWords[secondWords.length - 1].end,
+            enabled: line.enabled,
+        };
+        lines.splice(lineIndex, 1, firstLine, secondLine);
+        renderLineList();
+        markDirty();
+    }
+
+    async function autoSync() {
+        const btn = $("caption-auto-sync-btn");
+        if (btn) { btn.disabled = true; btn.textContent = "Detecting..."; }
+        try {
+            const resp = await fetch(`/api/reel/captions/${projectId}/auto-sync`, { method: "POST" });
+            const data = await resp.json();
+            if (data.error) {
+                alert("Auto-sync: " + data.error);
+                return;
+            }
+            const shift = data.suggested_shift || 0;
+            const shiftInput = $("caption-time-shift");
+            if (shiftInput) shiftInput.value = shift.toFixed(2);
+            if (Math.abs(shift) < 0.05) {
+                alert("Captions appear well-synced (shift < 0.05s). No adjustment needed.");
+            } else {
+                const confirmed = confirm(
+                    `${data.note}\n\nApply shift of ${shift > 0 ? "+" : ""}${shift.toFixed(2)}s to all captions?`
+                );
+                if (confirmed) applyTimeShift();
+            }
+        } catch (e) {
+            alert("Auto-sync failed: " + e.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = "Auto-Sync"; }
+        }
+    }
+
+    function replaceAll() {
+        const findInput = $("caption-replace-find");
+        const withInput = $("caption-replace-with");
+        const find = (findInput?.value || "").trim();
+        const replace = (withInput?.value ?? "").trim();
+        if (!find) return;
+
+        let count = 0;
+        const findLower = find.toLowerCase();
+        for (const line of lines) {
+            for (const word of line.words) {
+                if (word.text.toLowerCase() === findLower) {
+                    // Preserve original casing style (all-caps / capitalized)
+                    const wasCapitalized = word.text[0] === word.text[0].toUpperCase() && word.text.length > 1;
+                    word.text = wasCapitalized && replace.length > 0
+                        ? replace[0].toUpperCase() + replace.slice(1)
+                        : replace;
+                    count++;
+                }
+            }
+        }
+        if (count > 0) {
+            renderLineList();
+            markDirty();
+        }
+        if (findInput) findInput.value = "";
+        if (withInput) withInput.value = "";
+        // Show brief feedback in stats
+        const statsEl = $("caption-stats");
+        if (statsEl && count > 0) {
+            const prev = statsEl.textContent;
+            statsEl.textContent = `Replaced ${count} occurrence${count !== 1 ? "s" : ""} of "${find}"`;
+            setTimeout(() => { if (statsEl.textContent.startsWith("Replaced")) updateCaptionStats(); }, 2500);
+        }
+    }
+
+    function applyTimeShift() {
+        const input = $("caption-time-shift");
+        const shift = parseFloat(input?.value || "0");
+        if (!Number.isFinite(shift) || shift === 0) return;
+        for (const line of lines) {
+            line.start = Math.max(0, line.start + shift);
+            line.end   = Math.max(line.start + 0.01, line.end + shift);
+            for (const word of line.words) {
+                word.start = Math.max(0, word.start + shift);
+                word.end   = Math.max(word.start + 0.01, word.end + shift);
+            }
+        }
+        if (input) input.value = "";
+        renderLineList();
+        markDirty();
+    }
+
     function enableAll() {
         lines.forEach((line) => {
             line.enabled = true;
@@ -385,6 +673,9 @@ const CaptionEditor = (() => {
                 if (typeof ReelMaker !== "undefined" && typeof ReelMaker.refreshAssets === "function") {
                     ReelMaker.refreshAssets();
                 }
+                if (typeof ReelMaker !== "undefined" && typeof ReelMaker.attachCaptionTrack === "function") {
+                    ReelMaker.attachCaptionTrack();
+                }
             }
         } catch (e) {
             alert("Failed to save captions: " + e.message);
@@ -404,6 +695,13 @@ const CaptionEditor = (() => {
         disableAll,
         save,
         reset,
+        filterLines,
+        replaceAll,
+        seekToLine,
+        applyTimeShift,
+        autoSync,
+        mergeWithNext,
+        splitLineAt,
         isDirty: () => dirty,
     };
 })();
