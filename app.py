@@ -390,12 +390,6 @@ CAPTIONING_INSTALL_STATE = {
     "last_error": None,
 }
 CAPTIONING_INSTALL_LOCK = threading.Lock()
-FILM_INSTALL_STATE = {
-    "status": "idle",  # idle | installing | ready | failed
-    "message": "",
-    "last_error": None,
-}
-FILM_INSTALL_LOCK = threading.Lock()
 
 
 def _set_bootstrap_state(status, message="", error=None):
@@ -414,91 +408,6 @@ def _set_captioning_install_state(status, message="", error=None):
     CAPTIONING_INSTALL_STATE["status"] = status
     CAPTIONING_INSTALL_STATE["message"] = message
     CAPTIONING_INSTALL_STATE["last_error"] = error
-
-
-def _set_film_install_state(status, message="", error=None):
-    FILM_INSTALL_STATE["status"] = status
-    FILM_INSTALL_STATE["message"] = message
-    FILM_INSTALL_STATE["last_error"] = error
-
-
-def get_film_dependency_status():
-    """Return install status for Film Lab Python dependencies (rawpy, numpy)."""
-    result = {}
-    for pkg, import_name in (("rawpy", "rawpy"), ("numpy", "numpy")):
-        try:
-            mod = importlib.import_module(import_name)
-            result[pkg] = {
-                "installed": True,
-                "version": getattr(mod, "__version__", "installed"),
-            }
-        except Exception as e:
-            result[pkg] = {"installed": False, "version": None, "error": str(e)}
-    result["required_missing"] = [
-        pkg for pkg in ("rawpy", "numpy") if not result[pkg]["installed"]
-    ]
-    return result
-
-
-def _run_film_install():
-    """Install rawpy and numpy into the main Python environment via pip."""
-    with FILM_INSTALL_LOCK:
-        try:
-            python = _get_python_for_pip()
-            if not python:
-                _set_film_install_state("failed", "Install failed.", "No Python executable found for pip.")
-                return
-
-            packages = [
-                pkg for pkg in ("rawpy", "numpy")
-                if not importlib.import_module.__module__  # trigger check below
-            ]
-            # Re-check which are actually missing
-            packages = []
-            for pkg, import_name in (("rawpy", "rawpy"), ("numpy", "numpy")):
-                try:
-                    importlib.import_module(import_name)
-                except Exception:
-                    packages.append(pkg)
-
-            if not packages:
-                _set_film_install_state("ready", "Film Lab dependencies already installed.")
-                return
-
-            _set_film_install_state("installing", f"Installing {', '.join(packages)}...")
-            print(f"Film Lab install: pip install {' '.join(packages)}")
-
-            extra = {}
-            if platform.system() == "Windows":
-                extra["creationflags"] = subprocess.CREATE_NO_WINDOW
-
-            result = subprocess.run(
-                [python, "-m", "pip", "install", "--upgrade", "--prefer-binary"] + packages,
-                capture_output=True,
-                text=True,
-                timeout=300,
-                **extra,
-            )
-            if result.returncode != 0:
-                error = (result.stderr or result.stdout or "pip install failed").strip()
-                print(f"Film Lab install failed: {error}")
-                _set_film_install_state("failed", "Install failed.", error)
-            else:
-                _set_film_install_state("ready", f"Installed: {', '.join(packages)}. Film Lab is ready.")
-                print(f"Film Lab install succeeded: {', '.join(packages)}")
-        except subprocess.TimeoutExpired:
-            _set_film_install_state("failed", "Install timed out.", "pip install exceeded 5-minute timeout")
-        except Exception as e:
-            _set_film_install_state("failed", "Install failed.", str(e))
-
-
-def install_film_deps_one_click():
-    """Start Film Lab dependency install if one is not already running."""
-    if FILM_INSTALL_STATE["status"] == "installing":
-        return False
-    thread = threading.Thread(target=_run_film_install, daemon=True)
-    thread.start()
-    return True
 
 
 def _required_missing(results):
@@ -591,8 +500,6 @@ def _build_deps_payload(results):
     payload["ytdlp_update_available"] = bool(results.get("yt-dlp", {}).get("installed"))
     payload["captioning"] = get_caption_dependency_status()
     payload["captioning_install"] = dict(CAPTIONING_INSTALL_STATE)
-    payload["film"] = get_film_dependency_status()
-    payload["film_install"] = dict(FILM_INSTALL_STATE)
     return payload
 
 
@@ -1110,12 +1017,6 @@ def bootstrap_deps():
 def update_ytdlp():
     results = update_ytdlp_one_click()
     return jsonify(_build_deps_payload(results))
-
-
-@app.route("/api/install-film-deps", methods=["POST"])
-def install_film_deps_route():
-    install_film_deps_one_click()
-    return jsonify(_build_deps_payload(run_deps_check()))
 
 
 @app.route("/api/install-captioning-deps", methods=["POST"])
@@ -1748,15 +1649,6 @@ def shutdown():
 
 from alert import register_alert_routes
 register_alert_routes(app)
-
-from reel import register_reel_routes
-register_reel_routes(app)
-
-from captions import register_caption_routes
-register_caption_routes(app)
-
-from film import register_film_routes
-register_film_routes(app)
 
 
 # ── Run ─────────────────────────────────────────────────────────
