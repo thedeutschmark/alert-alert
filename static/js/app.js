@@ -4,7 +4,6 @@
  */
 const App = (() => {
     const AUTO_DOWNLOAD_CONSENT_KEY = "alertCreatorAutoDownloadConsent";
-    const ONBOARDING_INTRO_DONE_KEY = "onboarding_intro_done";
     const DEFAULT_THEME_ID = "cobalt-night";
     const AVAILABLE_THEME_IDS = new Set([
         "cobalt-night",
@@ -26,22 +25,15 @@ const App = (() => {
     let dependencyInstallAttempted = false;
     let dependencyInstallInFlight = false;
     let dependencyUpdateInFlight = false;
-    let captioningInstallInFlight = false;
     let lastDeps = null;
     let onboardingFlow = null;
     let onboardingStep = 0;
-    const SHARED_ONBOARDING_START_STEP = {
-        title: "Start With The Right Tool",
-        body: "Alert Creator is the fast utility for downloading one source, replacing audio, normalizing levels, and exporting a finished clip. Video Editor is the Twitch VOD workflow for pulling streams, markers, clips, shorts, captions, and longform follow-ups. Pick the workspace you want to start in.",
-        isChooserStep: true,
-    };
 
     const ONBOARDING_FLOWS = {
         alert: [
-            SHARED_ONBOARDING_START_STEP,
             {
-                title: "Alert Creator Is The Fast Utility Tool",
-                body: "Use it when you want one source in, one finished file out, without opening the full Twitch editing workflow.",
+                title: "Welcome To Alert! Alert!",
+                body: "The fast utility for turning one source into one finished alert clip. One source in, one file out — no multi-clip timeline.",
                 features: [
                     "Download a source from a URL or load one local video file",
                     "Replace the original audio with a second URL or local audio file",
@@ -50,17 +42,16 @@ const App = (() => {
                 ],
             },
             {
-                title: "Install required tools",
-                body: "Install the core download and processing tools once. After that, Alert Creator can download and process clips locally.",
+                title: "Install Required Tools",
+                body: "Install the core download and processing tools once. After that, Alert! Alert! can download and process clips locally.",
                 isRuntimeStep: true,
             },
             {
                 title: "Load The Clip You Want To Work From",
-                body: "Paste a video URL or choose a local file. This is the fastest path when you just need one clip, one download, or one alert asset.",
+                body: "Paste a video URL or choose a local file. The source opens directly in preview so you can trim immediately.",
                 features: [
                     "Works with YouTube, Twitch, TikTok, and other supported URLs",
                     "Local files work too when you already have the source on disk",
-                    "The source opens directly in preview so you can trim immediately",
                 ],
             },
             {
@@ -75,66 +66,13 @@ const App = (() => {
             },
             {
                 title: "Process And Export",
-                body: "Render the finished MP4 and drop it into OBS, your stream deck, Discord, or whatever tool needs the final file.",
+                body: "Render the finished MP4 and drop it into OBS, your stream deck, Discord, or wherever the alert lives.",
                 features: [
                     "Stream Alert, Shorts, Discord, and higher-quality export presets",
                     "Saves to your configured output folder",
-                    "Built for fast turnarounds, not a multi-clip timeline",
                 ],
                 isLast: true,
-                doneLabel: "Open Alert Creator",
-            },
-        ],
-        reel: [
-            SHARED_ONBOARDING_START_STEP,
-            {
-                title: "Video Editor Is The Twitch VOD Workflow",
-                body: "Use it when a stream session needs to turn into many deliverables: imported clips, polished shorts, captions, and a longform follow-up.",
-                features: [
-                    "Connect Twitch and pull recent VODs, markers, and viewer clips",
-                    "Build a session inbox from one stream instead of one isolated file",
-                    "Prep shorts, stitch clip sequences, and keep the project autosaved locally",
-                    "Queue the strongest shorts into a later longform cut",
-                ],
-            },
-            {
-                title: "Install required tools",
-                body: "Install the core download and processing tools once. After that, the workflow can pull sources, clips, and exports locally.",
-                isRuntimeStep: true,
-            },
-            {
-                title: "Set Up Auto Captions",
-                body: "Captions need two Python packages in the same environment as the app. Install them here now or leave this for later.",
-                isDepsStep: true,
-            },
-            {
-                title: "Ingest The Stream Session",
-                body: "Load a VOD, local recording, or connected Twitch archive. Then pull markers and existing clips into the inbox.",
-                features: [
-                    "Load a Twitch VOD directly from the connected account",
-                    "Import Twitch markers and viewer clips as starter edits",
-                    "Paste stream notes or marker timestamps to seed the inbox",
-                ],
-            },
-            {
-                title: "Build The Inbox, Then Prep Shorts",
-                body: "Refine clips, preview the sequence, and turn the best moments into short-ready pieces.",
-                features: [
-                    "Review imported moments alongside manual clips",
-                    "Prep one active clip or bulk prep the whole inbox",
-                    "Keep shortform choices and the longform queue in the same project",
-                ],
-            },
-            {
-                title: "Polish Captions And Publish Outputs",
-                body: "Run captions, choose delivery format, render shorts, and spin up the longform project when the session is ready.",
-                features: [
-                    "Burn captions into shorts or keep them for later",
-                    "Export Shorts, square, 4:5, or landscape versions",
-                    "Build a separate longform project from queued prepared shorts",
-                ],
-                isLast: true,
-                doneLabel: "Open Video Editor",
+                doneLabel: "Get Started",
             },
         ],
     };
@@ -684,17 +622,10 @@ const App = (() => {
         }));
         const missing = [];
         const instructions = [];
-        const captioning = deps.captioning || {};
-        const captionInstallState = deps.captioning_install || {};
-        const captionRequiredMissing = captioning.required_missing || [];
-        const captionOptionalMissing = captioning.optional_missing || [];
 
         const ffmpegStatus = $("dep-ffmpeg-status");
         const ytdlpStatus = $("dep-ytdlp-status");
         const denoStatus = $("dep-deno-status");
-        const fasterWhisperStatus = $("dep-faster-whisper-status");
-        const torchStatus = $("dep-torch-status");
-        const pyannoteStatus = $("dep-pyannote-status");
         const installBtn = $("auto-install-deps-btn");
         const updateBtn = $("update-ytdlp-btn");
 
@@ -729,46 +660,6 @@ const App = (() => {
             }
         }
 
-        if (fasterWhisperStatus) {
-            if (captioning.faster_whisper?.installed) {
-                const version = captioning.faster_whisper.version || "installed";
-                fasterWhisperStatus.textContent = `✓ ${version}`;
-                fasterWhisperStatus.className = "dep-status installed";
-            } else {
-                fasterWhisperStatus.textContent = "✗ Needed";
-                fasterWhisperStatus.className = "dep-status missing";
-            }
-        }
-
-        if (torchStatus) {
-            if (captioning.torch?.installed) {
-                const device = captioning.torch.cuda ? "CUDA" : "CPU";
-                torchStatus.textContent = `✓ ${device}`;
-                torchStatus.className = "dep-status installed";
-            } else {
-                torchStatus.textContent = "✗ Needed";
-                torchStatus.className = "dep-status missing";
-            }
-        }
-
-        if (pyannoteStatus) {
-            if (captioning.pyannote_audio?.installed) {
-                const version = captioning.pyannote_audio.version || "installed";
-                pyannoteStatus.textContent = `✓ ${version}`;
-                pyannoteStatus.className = "dep-status installed";
-            } else {
-                pyannoteStatus.textContent = "⚠ Optional";
-                pyannoteStatus.className = "dep-status missing";
-            }
-        }
-
-        if (captionRequiredMissing.length > 0) {
-            instructions.push("Captions: Use the 1-click install above. It installs `faster-whisper` and `torch` into this app's managed captioning environment.");
-        }
-        if (captionOptionalMissing.includes("pyannote_audio")) {
-            instructions.push("Speaker labels: Install `pyannote.audio` with the optional 1-click button, then provide a Hugging Face token in Video Editor.");
-        }
-
         if (installBtn) {
             const shouldShowInstall = deps.auto_install_available && (missing.length > 0 || !deps.deno?.installed);
             installBtn.classList.toggle("hidden", !shouldShowInstall);
@@ -788,69 +679,14 @@ const App = (() => {
                 : "Update yt-dlp (1-click)";
         }
 
-        const captioningInstallBtn = $("install-captioning-deps-btn");
-        if (captioningInstallBtn) {
-            const busy = captioningInstallInFlight || captionInstallState.status === "installing";
-            captioningInstallBtn.classList.toggle("hidden", captionRequiredMissing.length === 0);
-            captioningInstallBtn.disabled = busy;
-            if (!busy) captioningInstallBtn.textContent = "Install faster-whisper + torch (1-click)";
-        }
-
-        const pyannoteInstallBtn = $("install-pyannote-btn");
-        if (pyannoteInstallBtn) {
-            const busy = captioningInstallInFlight || captionInstallState.status === "installing";
-            const showPyannote = captionOptionalMissing.includes("pyannote_audio") && captionRequiredMissing.length === 0;
-            pyannoteInstallBtn.classList.toggle("hidden", !showPyannote);
-            pyannoteInstallBtn.disabled = busy;
-            if (!busy) pyannoteInstallBtn.textContent = "Install pyannote.audio (1-click)";
-        }
-
-        // Film Lab dependencies
-        const film = deps.film || {};
-        const filmInstallState = deps.film_install || {};
-        const filmMissing = film.required_missing || [];
-        const rawpyStatus = $("dep-rawpy-status");
-        const numpyStatus = $("dep-numpy-status");
-        if (rawpyStatus) {
-            if (film.rawpy?.installed) {
-                rawpyStatus.textContent = `✓ ${film.rawpy.version || "installed"}`;
-                rawpyStatus.className = "dep-status installed";
-            } else {
-                rawpyStatus.textContent = "✗ Needed";
-                rawpyStatus.className = "dep-status missing";
-            }
-        }
-        if (numpyStatus) {
-            if (film.numpy?.installed) {
-                numpyStatus.textContent = `✓ ${film.numpy.version || "installed"}`;
-                numpyStatus.className = "dep-status installed";
-            } else {
-                numpyStatus.textContent = "✗ Needed";
-                numpyStatus.className = "dep-status missing";
-            }
-        }
-        const filmInstallBtn = $("install-film-deps-btn");
-        if (filmInstallBtn) {
-            const busy = filmInstallState.status === "installing";
-            filmInstallBtn.classList.toggle("hidden", filmMissing.length === 0);
-            filmInstallBtn.disabled = busy;
-            filmInstallBtn.textContent = busy ? "Installing..." : "Install Film Lab deps (1-click)";
-        }
-
         const depPillValue = $("dependency-pill-value");
         if (depPillValue) {
             if (deps.bootstrap?.status === "installing") {
                 depPillValue.textContent = "Installing...";
             } else if (deps.ytdlp_update?.status === "updating") {
                 depPillValue.textContent = "Updating yt-dlp...";
-            } else if (captionInstallState.status === "installing") {
-                depPillValue.textContent = "Installing captions...";
-            } else if (filmInstallState.status === "installing") {
-                depPillValue.textContent = "Installing Film Lab...";
             } else if (missing.length === 0) {
-                depPillValue.textContent = captionRequiredMissing.length > 0 ? "Captions Need Setup"
-                    : filmMissing.length > 0 ? "Film Lab Needs Setup"
-                    : "Ready";
+                depPillValue.textContent = "Ready";
             } else {
                 depPillValue.textContent = `Needs Setup (${missing.length})`;
             }
@@ -868,27 +704,6 @@ const App = (() => {
                 `<strong>How to fix:</strong><br>${instructions.join("<br>")}`,
                 true
             );
-        } else if (captionRequiredMissing.length > 0) {
-            setPanelOpen("dependency-settings-panel", true);
-            if (captionInstallState.status === "installing") {
-                setDependencyBanner(
-                    "<strong>Installing captioning packages...</strong>",
-                    escapeHtml(captionInstallState.message || "This may take a few minutes. Do not close the app."),
-                    false
-                );
-            } else if (captionInstallState.status === "failed") {
-                setDependencyBanner(
-                    "<strong>Captioning install failed.</strong>",
-                    escapeHtml(captionInstallState.last_error || "Retry the 1-click install and check internet access."),
-                    true
-                );
-            } else {
-                setDependencyBanner(
-                    "<strong>Video Editor captioning needs Python packages.</strong>",
-                    `<strong>How to fix:</strong><br>${instructions.join("<br>")}`,
-                    false
-                );
-            }
         } else {
             hideDependencyBanner();
         }
@@ -1000,152 +815,6 @@ const App = (() => {
         }
     }
 
-    async function waitForCaptioningInstall(timeoutMs = 30 * 60 * 1000) {
-        const startedAt = Date.now();
-        let deps = await api("/api/check-deps");
-        while ((deps?.captioning_install?.status || "idle") === "installing") {
-            if ((Date.now() - startedAt) > timeoutMs) {
-                throw new Error("Captioning install timed out.");
-            }
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-            deps = await api("/api/check-deps");
-        }
-        return deps;
-    }
-
-    function getCaptionInstallButtons(includePyannote = false) {
-        const ids = includePyannote
-            ? ["install-pyannote-btn", "reel-caption-runtime-speaker-btn"]
-            : ["install-captioning-deps-btn", "reel-caption-runtime-install-btn"];
-        return ids.map((id) => $(id)).filter(Boolean);
-    }
-
-    function getCaptionInstallIdleLabel(buttonId, includePyannote = false) {
-        if (includePyannote) {
-            return buttonId === "reel-caption-runtime-speaker-btn"
-                ? "Install pyannote.audio (optional)"
-                : "Install pyannote.audio (1-click)";
-        }
-        return "Install faster-whisper + torch (1-click)";
-    }
-
-    function setCaptionInstallButtonState(includePyannote = false, busy = false) {
-        const busyLabel = includePyannote
-            ? "Installing pyannote.audio..."
-            : "Installing faster-whisper + torch...";
-        getCaptionInstallButtons(includePyannote).forEach((button) => {
-            button.disabled = busy;
-            button.textContent = busy
-                ? busyLabel
-                : getCaptionInstallIdleLabel(button.id, includePyannote);
-        });
-    }
-
-    async function installCaptioningDeps(includePyannote = false) {
-        if (captioningInstallInFlight) return;
-        captioningInstallInFlight = true;
-        const label = includePyannote ? "pyannote.audio" : "faster-whisper + torch";
-        setCaptionInstallButtonState(includePyannote, true);
-
-        setDependencyBanner(
-            `<strong>Installing ${label}...</strong>`,
-            "This may take a few minutes. Do not close the app.",
-            false
-        );
-
-        try {
-            let deps = await api("/api/install-captioning-deps", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ include_pyannote: includePyannote }),
-            });
-            renderDependencyStatus(deps);
-
-            if ((deps?.captioning_install?.status || "idle") === "installing") {
-                deps = await waitForCaptioningInstall();
-                renderDependencyStatus(deps);
-            }
-
-            const installState = deps?.captioning_install || {};
-            if (installState.status === "failed") {
-                setDependencyBanner(
-                    `<strong>${label} install failed.</strong>`,
-                    escapeHtml(installState.last_error || "Check internet access and retry."),
-                    true
-                );
-            } else {
-                setDependencyBanner(
-                    `<strong>${label} installed.</strong>`,
-                    escapeHtml(installState.message || "Captioning is ready."),
-                    false,
-                    8000
-                );
-            }
-        } catch (e) {
-            setDependencyBanner(
-                `<strong>${label} install failed.</strong>`,
-                "Check your internet connection and try again.",
-                true
-            );
-        } finally {
-            captioningInstallInFlight = false;
-            setCaptionInstallButtonState(includePyannote, false);
-        }
-    }
-
-    let filmInstallInFlight = false;
-
-    async function installFilmDeps() {
-        if (filmInstallInFlight) return;
-        filmInstallInFlight = true;
-        const btn = $("install-film-deps-btn");
-        if (btn) { btn.disabled = true; btn.textContent = "Installing..."; }
-
-        setDependencyBanner(
-            "<strong>Installing Film Lab dependencies...</strong>",
-            "Installing rawpy and numpy via pip. This should only take a moment.",
-            false
-        );
-
-        try {
-            let deps = await api("/api/install-film-deps", { method: "POST" });
-            renderDependencyStatus(deps);
-
-            // Poll if still installing
-            let attempts = 0;
-            while ((deps?.film_install?.status || "idle") === "installing" && attempts < 30) {
-                attempts++;
-                await new Promise((resolve) => setTimeout(resolve, 2000));
-                deps = await api("/api/check-deps");
-                renderDependencyStatus(deps);
-            }
-
-            const state = deps?.film_install || {};
-            if (state.status === "failed") {
-                setDependencyBanner(
-                    "<strong>Film Lab install failed.</strong>",
-                    escapeHtml(state.last_error || "Check internet access and retry."),
-                    true
-                );
-            } else {
-                setDependencyBanner(
-                    "<strong>Film Lab dependencies installed.</strong>",
-                    escapeHtml(state.message || "rawpy and numpy are ready."),
-                    false,
-                    6000
-                );
-            }
-        } catch (e) {
-            setDependencyBanner(
-                "<strong>Film Lab install failed.</strong>",
-                "Check your internet connection and try again.",
-                true
-            );
-        } finally {
-            filmInstallInFlight = false;
-        }
-    }
-
     // ── Onboarding ───────────────────────────────────────────────
 
     function showOnboarding(flow, options = {}) {
@@ -1158,13 +827,8 @@ const App = (() => {
     }
 
     function skipOnboarding() {
-        const flow = ONBOARDING_FLOWS[onboardingFlow];
-        const step = flow?.[onboardingStep];
         const overlay = $("onboarding-overlay");
         if (overlay) overlay.classList.add("hidden");
-        if (step?.isChooserStep) {
-            localStorage.setItem(ONBOARDING_INTRO_DONE_KEY, "1");
-        }
         markOnboardingDone(onboardingFlow);
         onboardingFlow = null;
     }
@@ -1196,47 +860,29 @@ const App = (() => {
     }
 
     function restartOnboarding() {
-        const isReel = $("mode-reel-btn")?.classList.contains("active");
-        const mode = isReel ? "reel" : "alert";
         setPanelOpen("dependency-settings-panel", false);
-        showOnboarding(mode, { step: 0 });
+        showOnboarding("alert", { step: 0 });
     }
 
     function checkOnboardingForMode(mode) {
         if (onboardingFlow) return;
         if (!localStorage.getItem(`onboarding_${mode}_done`)) {
-            const introDone = !!localStorage.getItem(ONBOARDING_INTRO_DONE_KEY);
-            showOnboarding(mode, { step: introDone ? 1 : 0 });
+            showOnboarding(mode, { step: 0 });
         }
-    }
-
-    function chooseOnboardingMode(mode) {
-        if (!ONBOARDING_FLOWS[mode]) return;
-        localStorage.setItem(ONBOARDING_INTRO_DONE_KEY, "1");
-        if (typeof switchMode === "function") {
-            switchMode(mode);
-        }
-        showOnboarding(mode, { step: 1 });
     }
 
     function renderOnboardingStep() {
         const flow = ONBOARDING_FLOWS[onboardingFlow];
         if (!flow) return;
         const step = flow[onboardingStep];
-        const hasChooserStep = Boolean(flow[0]?.isChooserStep);
-        const showingChooser = Boolean(step?.isChooserStep);
-        const total = hasChooserStep && !showingChooser ? flow.length - 1 : flow.length;
-        const current = hasChooserStep && !showingChooser ? onboardingStep : onboardingStep + 1;
+        const total = flow.length;
+        const current = onboardingStep + 1;
 
         const progressFill = $("onboarding-progress-fill");
         if (progressFill) progressFill.style.width = `${(current / total) * 100}%`;
 
         const stepLabel = $("onboarding-step-label");
-        if (stepLabel) {
-            stepLabel.textContent = showingChooser
-                ? "Choose your starting tool"
-                : `Step ${current} of ${total}`;
-        }
+        if (stepLabel) stepLabel.textContent = `Step ${current} of ${total}`;
 
         const icon = $("onboarding-icon");
         if (icon) {
@@ -1253,12 +899,8 @@ const App = (() => {
 
         const contentArea = $("onboarding-content-area");
         if (contentArea) {
-            if (step.isChooserStep) {
-                contentArea.innerHTML = buildOnboardingChooserHtml(onboardingFlow);
-            } else if (step.isRuntimeStep) {
+            if (step.isRuntimeStep) {
                 contentArea.innerHTML = buildOnboardingRuntimeHtml();
-            } else if (step.isDepsStep) {
-                contentArea.innerHTML = buildOnboardingDepsHtml();
             } else if (step.features) {
                 contentArea.innerHTML = `<div class="onboarding-features">${
                     step.features.map(f => `<div class="onboarding-feature"><div class="onboarding-feature-dot"></div><span>${escapeHtml(f)}</span></div>`).join("")
@@ -1273,59 +915,9 @@ const App = (() => {
 
         const nextBtn = $("onboarding-next-btn");
         if (nextBtn) {
-            nextBtn.disabled = Boolean(step.isChooserStep);
-            nextBtn.textContent = step.isChooserStep
-                ? "Choose a Tool Below"
-                : (step.isLast ? (step.doneLabel || "Done") : "Next");
+            nextBtn.disabled = false;
+            nextBtn.textContent = step.isLast ? (step.doneLabel || "Done") : "Next";
         }
-    }
-
-    function buildOnboardingChooserHtml(currentFlow) {
-        const cards = [
-            {
-                mode: "alert",
-                kicker: "Fast Utility Tool",
-                title: "Alert Creator",
-                body: "The single-source utility for quick downloads, audio swaps, level cleanup, and fast exports.",
-                features: [
-                    "Download one source from a URL or local file",
-                    "Replace audio, trim it, and normalize the final level",
-                    "Great for alerts, overlays, Discord clips, and quick promo exports",
-                ],
-            },
-            {
-                mode: "reel",
-                kicker: "Twitch VOD Workflow",
-                title: "Video Editor",
-                body: "The stream-session workflow for turning a Twitch VOD into an inbox, a stack of shorts, and a later longform cut.",
-                features: [
-                    "Pull connected Twitch VODs, markers, and viewer clips",
-                    "Prep shorts, stitch sequences, and run captions in one project",
-                    "Best when one stream needs many deliverables instead of one quick export",
-                ],
-            },
-        ];
-
-        return `<div class="onboarding-tool-grid">${
-            cards.map((card) => `
-                <div class="onboarding-tool-card ${card.mode === currentFlow ? "active" : ""}">
-                    <div class="onboarding-tool-kicker">${escapeHtml(card.kicker)}</div>
-                    <h3 class="onboarding-tool-title">${escapeHtml(card.title)}</h3>
-                    <p class="onboarding-tool-body">${escapeHtml(card.body)}</p>
-                    <div class="onboarding-features onboarding-tool-list">${
-                        card.features.map((feature) => `
-                            <div class="onboarding-feature">
-                                <div class="onboarding-feature-dot"></div>
-                                <span>${escapeHtml(feature)}</span>
-                            </div>
-                        `).join("")
-                    }</div>
-                    <button class="onboarding-install-btn onboarding-tool-start" onclick="App.chooseOnboardingMode('${card.mode}')">
-                        ${card.mode === currentFlow ? "Start Here" : `Start with ${escapeHtml(card.title)}`}
-                    </button>
-                </div>
-            `).join("")
-        }</div>`;
     }
 
     function buildOnboardingRuntimeHtml() {
@@ -1369,71 +961,6 @@ const App = (() => {
         renderOnboardingStep();
     }
 
-    function buildOnboardingDepsHtml() {
-        const captioning = lastDeps?.captioning || {};
-        const installState = lastDeps?.captioning_install || {};
-        const fwInstalled = !!captioning.faster_whisper?.installed;
-        const torchInstalled = !!captioning.torch?.installed;
-        const pyannoteInstalled = !!captioning.pyannote_audio?.installed;
-        const bothRequired = fwInstalled && torchInstalled;
-        const busy = captioningInstallInFlight || installState.status === "installing";
-
-        const rows = [
-            {
-                name: "faster-whisper",
-                installed: fwInstalled,
-                label: fwInstalled ? (captioning.faster_whisper?.version || "Installed") : "Missing",
-            },
-            {
-                name: "torch",
-                installed: torchInstalled,
-                label: torchInstalled ? (captioning.torch?.cuda ? "CUDA ready" : "CPU ready") : "Missing",
-            },
-            {
-                name: "pyannote.audio",
-                installed: pyannoteInstalled,
-                label: pyannoteInstalled ? (captioning.pyannote_audio?.version || "Installed") : "Optional",
-            },
-        ];
-
-        const rowsHtml = rows.map(r => `
-            <div class="onboarding-dep-row">
-                <span class="onboarding-dep-name">${escapeHtml(r.name)}</span>
-                <span class="onboarding-dep-status ${r.installed ? "installed" : "missing"}">${escapeHtml(r.label)}</span>
-            </div>`).join("");
-
-        const installBtn = !bothRequired ? `
-            <button class="onboarding-install-btn" onclick="App.onboardingInstallCaptioning(false)" ${busy ? "disabled" : ""}>
-                ${busy ? "Installing Caption Runtime..." : "Install Caption Runtime"}
-            </button>` : "";
-
-        const pyannoteBtn = bothRequired && !pyannoteInstalled ? `
-            <button class="onboarding-install-btn secondary" onclick="App.onboardingInstallCaptioning(true)" ${busy ? "disabled" : ""}>
-                ${busy ? "Installing Speaker Labels..." : "Install Speaker Labels Runtime"}
-            </button>` : "";
-
-        let skipNote = bothRequired
-            ? `<p class="onboarding-skip-note success">Required caption packages are installed.</p>`
-            : `<p class="onboarding-skip-note">You can skip this step and install captioning later.</p>`;
-
-        if (installState.status === "installing") {
-            skipNote = `<p class="onboarding-skip-note">${escapeHtml(installState.message || "Installing captioning packages...")}</p>`;
-        } else if (installState.status === "failed" && !bothRequired) {
-            skipNote = `<p class="onboarding-skip-note">${escapeHtml(installState.last_error || "Captioning install failed. Retry when ready.")}</p>`;
-        }
-
-        return `<div class="onboarding-deps-box">${rowsHtml}</div>${installBtn}${pyannoteBtn}${skipNote}`;
-    }
-
-    async function onboardingInstallCaptioning(includePyannote) {
-        await installCaptioningDeps(includePyannote);
-        try {
-            const deps = await api("/api/check-deps");
-            lastDeps = deps;
-        } catch (_) {}
-        renderOnboardingStep();
-    }
-
     async function allowDependencyAutoDownload() {
         setAutoDownloadConsent("allow");
         dependencyInstallAttempted = true;
@@ -1459,58 +986,38 @@ const App = (() => {
             // Skip ctrl/meta/alt combos
             if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-            const reelVisible = $("reel-workflow") && !$("reel-workflow").classList.contains("hidden");
-
             if (e.key === "?" || e.key === "/") {
                 e.preventDefault();
                 toggleShortcutHelp();
                 return;
             }
 
-            if (reelVisible) {
-                const video = $("reel-preview-video");
-                if (!video) return;
-                if (e.key === " ") {
-                    e.preventDefault();
-                    video.paused ? video.play() : video.pause();
-                } else if (e.key === "l" || e.key === "L") {
-                    e.preventDefault();
-                    video.loop = !video.loop;
-                } else if (e.key === "ArrowLeft") {
-                    e.preventDefault();
-                    video.currentTime = Math.max(0, video.currentTime - (e.shiftKey ? 5 : 1 / 30));
-                } else if (e.key === "ArrowRight") {
-                    e.preventDefault();
-                    video.currentTime = Math.min(video.duration || 0, video.currentTime + (e.shiftKey ? 5 : 1 / 30));
-                }
-            } else {
-                const video = $("crop-video");
-                if (e.key === " ") {
-                    if (!video || !video.src) return;
-                    e.preventDefault();
-                    video.paused ? video.play() : video.pause();
-                } else if (e.key === "l" || e.key === "L") {
-                    e.preventDefault();
-                    toggleLoop();
-                } else if (e.key === "i" || e.key === "I") {
-                    if (!video || !video.src) return;
-                    e.preventDefault();
-                    setTrimIn();
-                } else if (e.key === "o" || e.key === "O") {
-                    if (!video || !video.src) return;
-                    e.preventDefault();
-                    setTrimOut();
-                } else if (e.key === "ArrowLeft") {
-                    if (!video || !video.src) return;
-                    e.preventDefault();
-                    video.currentTime = Math.max(0, video.currentTime - (e.shiftKey ? 5 : 1 / 30));
-                    updatePreviewTimelineFromCurrentTime();
-                } else if (e.key === "ArrowRight") {
-                    if (!video || !video.src) return;
-                    e.preventDefault();
-                    video.currentTime = Math.min(video.duration || 0, video.currentTime + (e.shiftKey ? 5 : 1 / 30));
-                    updatePreviewTimelineFromCurrentTime();
-                }
+            const video = $("crop-video");
+            if (e.key === " ") {
+                if (!video || !video.src) return;
+                e.preventDefault();
+                video.paused ? video.play() : video.pause();
+            } else if (e.key === "l" || e.key === "L") {
+                e.preventDefault();
+                toggleLoop();
+            } else if (e.key === "i" || e.key === "I") {
+                if (!video || !video.src) return;
+                e.preventDefault();
+                setTrimIn();
+            } else if (e.key === "o" || e.key === "O") {
+                if (!video || !video.src) return;
+                e.preventDefault();
+                setTrimOut();
+            } else if (e.key === "ArrowLeft") {
+                if (!video || !video.src) return;
+                e.preventDefault();
+                video.currentTime = Math.max(0, video.currentTime - (e.shiftKey ? 5 : 1 / 30));
+                updatePreviewTimelineFromCurrentTime();
+            } else if (e.key === "ArrowRight") {
+                if (!video || !video.src) return;
+                e.preventDefault();
+                video.currentTime = Math.min(video.duration || 0, video.currentTime + (e.shiftKey ? 5 : 1 / 30));
+                updatePreviewTimelineFromCurrentTime();
             }
         });
     }
@@ -1536,22 +1043,12 @@ const App = (() => {
                             <dt>Shift + ← →</dt><dd>Step 5 seconds</dd>
                             <dt>L</dt><dd>Toggle Loop</dd>
                         </dl>
-                        <p class="shortcut-section">Alert Creator</p>
+                    </div>
+                    <div>
+                        <p class="shortcut-section">Trim</p>
                         <dl>
                             <dt>I</dt><dd>Set Trim In</dd>
                             <dt>O</dt><dd>Set Trim Out</dd>
-                        </dl>
-                    </div>
-                    <div>
-                        <p class="shortcut-section">Caption Editor</p>
-                        <dl>
-                            <dt>J</dt><dd>Next line + seek</dd>
-                            <dt>K</dt><dd>Previous line + seek</dd>
-                            <dt>T</dt><dd>Toggle current line</dd>
-                            <dt>✂</dt><dd>Split line at word</dd>
-                            <dt>⤵</dt><dd>Merge with next line</dd>
-                            <dt>Ctrl+S</dt><dd>Save captions</dd>
-                            <dt>Replace All</dt><dd>Fix Whisper misrecognition</dd>
                         </dl>
                         <p class="shortcut-section">General</p>
                         <dl>
@@ -2984,15 +2481,11 @@ const App = (() => {
         toggleShortcutHelp,
         installMissingDependencies,
         updateYtdlp,
-        installCaptioningDeps,
-        installFilmDeps,
         onboardingNext,
         onboardingBack,
         skipOnboarding,
         restartOnboarding,
         checkOnboardingForMode,
-        chooseOnboardingMode,
-        onboardingInstallCaptioning,
         onboardingInstallRuntime,
         chooseOutputFolder,
         applyOutputFolder,
