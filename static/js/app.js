@@ -804,15 +804,91 @@ const App = (() => {
 
     function onboardingStartTour() {
         hideWelcomeScreen();
-        // Task 3 wires deps gate here; Task 6 wires the tour.
-        markOnboardingDone();
-        onboardingPhase = null;
+        if (depsAreReady()) {
+            startTour();
+        } else {
+            showDepGate();
+        }
     }
 
     function restartOnboarding() {
         setPanelOpen("dependency-settings-panel", false);
         clearOnboardingDone();
         showWelcomeScreen();
+    }
+
+    function showDepGate() {
+        onboardingPhase = "deps";
+        renderDepGate();
+        const el = $("dep-gate-screen");
+        if (el) el.classList.remove("hidden");
+    }
+
+    function hideDepGate() {
+        const el = $("dep-gate-screen");
+        if (el) el.classList.add("hidden");
+    }
+
+    function depsAreReady() {
+        const d = lastDeps;
+        if (!d) return false;
+        return !!(d.ffmpeg?.installed && d.ffprobe?.installed && d["yt-dlp"]?.installed);
+    }
+
+    function renderDepGate() {
+        const status = $("dep-gate-status");
+        const installBtn = $("dep-gate-install-btn");
+        if (!status || !installBtn) return;
+
+        const rows = [
+            { name: "FFmpeg / ffprobe", installed: !!(lastDeps?.ffmpeg?.installed && lastDeps?.ffprobe?.installed) },
+            { name: "yt-dlp",           installed: !!lastDeps?.["yt-dlp"]?.installed },
+        ];
+        status.innerHTML = rows.map(r => `
+            <div class="dep-gate-row">
+                <span class="dep-gate-row-name">${escapeHtml(r.name)}</span>
+                <span class="dep-gate-row-status ${r.installed ? "installed" : "missing"}">${r.installed ? "Installed" : "Missing"}</span>
+            </div>
+        `).join("");
+
+        const ready = depsAreReady();
+        const busy = dependencyInstallInFlight || lastDeps?.bootstrap?.status === "installing";
+
+        if (ready) {
+            installBtn.textContent = "Continue Tour";
+            installBtn.disabled = false;
+        } else if (busy) {
+            installBtn.textContent = "Installing...";
+            installBtn.disabled = true;
+        } else {
+            installBtn.textContent = "Install Required Tools";
+            installBtn.disabled = false;
+        }
+    }
+
+    async function onboardingInstallDeps() {
+        if (depsAreReady()) {
+            hideDepGate();
+            startTour();
+            return;
+        }
+        dependencyInstallInFlight = true;
+        renderDepGate();
+        try {
+            const deps = await api("/api/bootstrap-deps", { method: "POST" });
+            lastDeps = deps;
+            renderDependencyStatus(deps);
+        } catch (_) {}
+        dependencyInstallInFlight = false;
+        renderDepGate();
+    }
+
+    function startTour() {
+        onboardingPhase = "tour";
+        // Task 6 wires the tour state machine here. For now, mark done so the
+        // skeleton doesn't strand the user.
+        markOnboardingDone();
+        onboardingPhase = null;
     }
 
     async function allowDependencyAutoDownload() {
@@ -2361,6 +2437,7 @@ const App = (() => {
         updateYtdlp,
         onboardingStartTour,
         onboardingSkip,
+        onboardingInstallDeps,
         restartOnboarding,
         chooseOutputFolder,
         applyOutputFolder,

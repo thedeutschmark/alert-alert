@@ -1800,3 +1800,70 @@ input[type="file"]::file-selector-button {
 .welcome-skip:hover {
     color: var(--text);
 }
+
+/* ── Onboarding: Dependency Gate ───────────────────────────── */
+.dep-gate-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 9990;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    padding: 40px 24px;
+    animation: welcome-fade-in 0.25s ease;
+}
+
+.dep-gate-screen.hidden { display: none; }
+
+.dep-gate-content {
+    max-width: 560px;
+    text-align: center;
+}
+
+.dep-gate-headline {
+    font-size: 32px;
+    font-weight: 800;
+    margin: 0 0 14px;
+    color: var(--text);
+}
+
+.dep-gate-sub {
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    margin: 0 0 28px;
+}
+
+.dep-gate-status {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 0 0 24px;
+    text-align: left;
+}
+
+.dep-gate-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    font-size: 15px;
+}
+
+.dep-gate-row + .dep-gate-row {
+    border-top: 1px solid var(--border);
+}
+
+.dep-gate-row-name { color: var(--text); }
+
+.dep-gate-row-status {
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.dep-gate-row-status.installed { color: #8ce0b1; }
+.dep-gate-row-status.missing { color: rgba(189, 201, 214, 0.82); }
