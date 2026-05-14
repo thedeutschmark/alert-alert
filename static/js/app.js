@@ -842,6 +842,8 @@ const App = (() => {
         hideWelcomeScreen();
         hideDepGate();
         hideTourOverlay();
+        const card = $("tour-done-card");
+        if (card) card.classList.add("hidden");
         markOnboardingDone();
         onboardingPhase = null;
     }
@@ -1001,7 +1003,14 @@ const App = (() => {
         if (tourAdvanceUnsubscribe) tourAdvanceUnsubscribe();
         tourAdvanceUnsubscribe = null;
         hideTourOverlay();
-        // Task 7 wires the done card here.
+        onboardingPhase = "done";
+        const card = $("tour-done-card");
+        if (card) card.classList.remove("hidden");
+    }
+
+    function onboardingDismissDone() {
+        const card = $("tour-done-card");
+        if (card) card.classList.add("hidden");
         markOnboardingDone();
         onboardingPhase = null;
     }
@@ -2690,6 +2699,7 @@ const App = (() => {
         onboardingSkip,
         onboardingInstallDeps,
         onboardingTourNext,
+        onboardingDismissDone,
         restartOnboarding,
         chooseOutputFolder,
         applyOutputFolder,
