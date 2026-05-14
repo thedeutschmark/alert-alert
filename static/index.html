@@ -452,6 +452,18 @@
         </div>
     </section>
 
+    <!-- Onboarding: Tour Done Card -->
+    <div id="tour-done-card" class="tour-done-card hidden" role="dialog" aria-modal="true" aria-labelledby="tour-done-title">
+        <div class="tour-done-content">
+            <h2 id="tour-done-title" class="tour-done-title">Your first alert is saved.</h2>
+            <p class="tour-done-body">
+                The finished file is in your configured save folder. You can re-run this tour any time
+                from <strong>Setup Guide</strong> in the Dependency Setup menu.
+            </p>
+            <button class="welcome-cta" type="button" onclick="App.onboardingDismissDone()">Done</button>
+        </div>
+    </div>
+
     <!-- Onboarding: Tour Overlay -->
     <div id="tour-overlay" class="tour-overlay hidden" aria-hidden="true">
         <div id="tour-scrim" class="tour-scrim"></div>

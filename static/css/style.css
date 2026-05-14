@@ -1989,3 +1989,41 @@ input[type="file"]::file-selector-button {
 
 .tour-tooltip-next:hover { background: var(--accent-hover); }
 .tour-tooltip-next.hidden { display: none; }
+
+/* ── Onboarding: Tour Done Card ────────────────────────────── */
+.tour-done-card {
+    position: fixed;
+    inset: 0;
+    z-index: 9990;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.7);
+    animation: welcome-fade-in 0.25s ease;
+}
+
+.tour-done-card.hidden { display: none; }
+
+.tour-done-content {
+    max-width: 520px;
+    background: var(--panel, #1a212c);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 32px 36px;
+    text-align: center;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.55);
+}
+
+.tour-done-title {
+    font-size: 26px;
+    font-weight: 800;
+    margin: 0 0 12px;
+    color: var(--text);
+}
+
+.tour-done-body {
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    margin: 0 0 24px;
+}
