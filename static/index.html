@@ -434,6 +434,24 @@
         </div>
     </section>
 
+    <!-- Onboarding: Dependency Gate -->
+    <section id="dep-gate-screen" class="dep-gate-screen hidden" role="dialog" aria-modal="true" aria-labelledby="dep-gate-title">
+        <div class="dep-gate-content">
+            <h2 id="dep-gate-title" class="dep-gate-headline">Install Required Tools</h2>
+            <p class="dep-gate-sub">
+                Alert! Alert! uses FFmpeg and yt-dlp to download and process clips locally.
+                We'll install them into the app folder — no admin setup required.
+            </p>
+            <div id="dep-gate-status" class="dep-gate-status"></div>
+            <button id="dep-gate-install-btn" class="welcome-cta" type="button" onclick="App.onboardingInstallDeps()">
+                Install Required Tools
+            </button>
+            <button id="dep-gate-skip-link" class="welcome-skip" type="button" onclick="App.onboardingSkip()">
+                Skip — I'll install later
+            </button>
+        </div>
+    </section>
+
     <script src="/static/js/crop.js"></script>
     <script src="/static/js/app.js"></script>
     <script>
