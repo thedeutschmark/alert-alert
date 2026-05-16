@@ -86,10 +86,14 @@ class DesktopWindow(QMainWindow):
         # break <video src> playback from the local Flask origin. Memory
         # cache + no persistent cookies still prevent stale state from
         # prior installs from leaking across launches.
+        #
+        # NB: clearHttpCache() used to live here as belt-and-suspenders, but
+        # it raced the first setUrl() on cold launch and produced a stuck
+        # white screen until Reload. Memory cache always starts empty on a
+        # fresh process anyway, so the explicit clear was a no-op + a race.
         self.profile = QWebEngineProfile("alert-alert", self.view)
         self.profile.setHttpCacheType(QWebEngineProfile.MemoryHttpCache)
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.NoPersistentCookies)
-        self.profile.clearHttpCache()
         self.page = DesktopPage(self.profile, self.view)
         self.view.setPage(self.page)
         self.setCentralWidget(self.view)
