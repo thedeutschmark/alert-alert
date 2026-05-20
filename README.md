@@ -1,126 +1,93 @@
 <p align="center">
-  <img src="docs/hero.png" alt="Alert! Alert! — turn any clip into a stream alert" width="100%">
+  <img src="docs/hero.png" alt="Alert! Alert! — create consistent stream alerts from any source" width="100%">
 </p>
 
-```text
-    _    _           _   _      _    _           _   _
-   / \  | | ___ _ __| |_| |    / \  | | ___ _ __| |_| |
-  / _ \ | |/ _ \ '__| __| |   / _ \ | |/ _ \ '__| __| |
- / ___ \| |  __/ |  | |_|_|  / ___ \| |  __/ |  | |_|_|
-/_/   \_\_|\___|_|   \__(_) /_/   \_\_|\___|_|   \__(_)
-```
+**Create consistent stream alerts from any source. Download, edit, export. Fast.**
 
-**Desktop app for stream alerts. Quick alert clips, trims, crops, audio treatment, and exports.**
+Alert! Alert! is a small native desktop app for streamers: pull in a clip from a URL or a local file, crop and trim it, and export a clean alert — without opening a full editor.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-Native-41cd52?logo=qt&logoColor=white)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-orange?logo=ffmpeg&logoColor=white)
 ![License](https://img.shields.io/badge/License-AGPL_v3-blue)
 
-> **Heads up:** Alert! Alert! used to bundle a Video Editor and a Film Lab. Those have moved to their own repos:
-> - Video Editor → [`clipline`](../clipline)
-> - Film Lab → private repo
+---
+
+## What it does
+
+- **Load** from a video URL (via yt-dlp) or a local file.
+- **Preview** natively — H.264 plays directly, no browser engine, no transcode workaround.
+- **Crop** with aspect-ratio presets (1:1, 16:9, 9:16, 4:3, 3:4, 21:9), zoom, and a draggable box with rule-of-thirds guides.
+- **Trim** with in/out points, a waveform strip, and keyboard shortcuts.
+- **Export** a square alert: resolution + quality presets, audio normalize, fades, and an optional end-buffer freeze.
+- **Overrides** — swap in a separate audio track, or use a still image as the visual with the clip's audio.
+
+It's a native PySide6 (Qt Widgets) app — no web server, no embedded browser. The packaged exe is ~72 MB and launches instantly.
 
 ---
 
-## What It Does
+## Quick start
 
-- Load a remote video URL or local media file.
-- Trim, crop, zoom, choose aspect ratios, and export alerts fast.
-- Use separate audio, normalization, fades, and image override modes.
-- Run Windows one-click runtime install for `ffmpeg`, `ffprobe`, and `yt-dlp`.
+### Download the app
 
----
+1. Grab `alert-alert.exe` from the [latest release](https://github.com/thedeutschmark/alert-alert/releases/latest).
+2. Run it. Standalone — no Python needed.
+3. On first launch, if **FFmpeg** or **yt-dlp** aren't found, the app offers a one-click setup that downloads them for you from their official sources (nothing downloads until you click).
 
-## Requirements
-
-- Windows is the primary desktop target.
-- Python `3.10+` is recommended when running from source.
-- Internet access is required for one-click runtime install and remote URL loading.
-
----
-
-## Quick Start
-
-### Option 1: Download the EXE
-
-1. Download `alert-alert.exe` from [Releases](https://github.com/thedeutschmark/alert-alert/releases).
-2. Launch it.
-3. Allow runtime install if prompted.
-
-### Option 2: Run From Source
+### Run from source
 
 ```bash
 git clone https://github.com/thedeutschmark/alert-alert.git
 cd alert-alert
 pip install -r requirements.txt
-python desktop.py
+python native_app.py
 ```
 
-Browser mode for development:
-
-```bash
-python app.py
-```
-
-The local app runs on `http://localhost:3000` by default.
+Requirements: Windows (primary target), Python 3.10+, and internet access for URL loading and runtime setup.
 
 ---
 
-## How To Test
+## Keyboard shortcuts
 
-1. Load a URL or local file.
-2. Trim and crop it.
-3. Process the alert.
-4. Download the export.
+| Key | Action |
+| --- | --- |
+| `Space` | Play / pause |
+| `I` / `O` | Set trim in / out at the playhead |
+| `←` / `→` | Seek ∓1s |
+| `Home` | Jump to start |
 
 ---
 
-## Building The EXE
+## Menu
 
-### Windows
+- **Update yt-dlp** — pull the latest yt-dlp so YouTube changes don't break downloads.
+- **Show log terminal** — open a console alongside the app for live logs (off by default; also `--console` on launch).
+- **Open Output Folder**, **Replay Welcome**, **About**.
 
-```bat
-build.bat
-```
+---
 
-This builds the desktop executable to `dist\alert-alert.exe`.
-
-### Manual PyInstaller Build
+## Building the exe
 
 ```bash
-pip install pyinstaller PySide6
-python -m PyInstaller --clean --noconfirm AlertCreator.spec
+pip install -r requirements.txt pyinstaller
+python -m PyInstaller --clean --noconfirm AlertNative.spec
 ```
+
+Produces `dist/alert-alert.exe` (native build — `AlertNative.spec` excludes QtWebEngine). Pushing a `v*` tag also builds and attaches the exe via GitHub Actions.
 
 ---
 
 ## Troubleshooting
 
-### Port conflict
-The app defaults to `localhost:3000` and searches for another open port automatically. If startup still fails, close the conflicting process and relaunch.
-
-### YouTube or remote URL issues
-- Update `yt-dlp`.
-- Retry after runtime auto-install/update.
-- Install optional `deno` if YouTube challenge handling still fails.
+- **Downloads/exports fail on a fresh machine** → FFmpeg or yt-dlp isn't installed. Use the first-run setup prompt, or install them yourself.
+- **YouTube URL won't download** → run **Update yt-dlp** from the App menu; install optional `deno` if challenge handling still fails.
 
 ---
 
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE).
-
-Third-party runtime notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
-
----
+AGPL-3.0 — see [LICENSE](LICENSE). Third-party runtime notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 
 ## Credits
 
-Created by **deutschmark**
-
-Built with:
-- [Flask](https://flask.palletsprojects.com/)
-- [FFmpeg](https://ffmpeg.org/)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- [PySide6](https://doc.qt.io/qtforpython-6/)
+Created by **deutschmark**. Built with [FFmpeg](https://ffmpeg.org/), [yt-dlp](https://github.com/yt-dlp/yt-dlp), and [PySide6](https://doc.qt.io/qtforpython-6/).
