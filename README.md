@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="static/img/logo.png" alt="Alert! Alert! icon" width="220">
+  <img src="docs/hero.png" alt="Alert! Alert! — turn any clip into a stream alert" width="100%">
 </p>
 
 ```text
@@ -13,7 +13,7 @@
 **Desktop app for stream alerts. Quick alert clips, trims, crops, audio treatment, and exports.**
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
-![Flask](https://img.shields.io/badge/Flask-Backend-green?logo=flask&logoColor=white)
+![PySide6](https://img.shields.io/badge/PySide6-Native-41cd52?logo=qt&logoColor=white)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-orange?logo=ffmpeg&logoColor=white)
 ![License](https://img.shields.io/badge/License-AGPL_v3-blue)
 
