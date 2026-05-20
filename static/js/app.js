@@ -60,13 +60,13 @@ const App = (() => {
         {
             target: "#step-3",
             title: "Frame the crop",
-            body: "Pick a preset (Stream Alert, Shorts) or drag the crop corners to frame your alert.",
+            body: "Pick an aspect ratio (1:1, 9:16, 16:9…), drag the crop corners, and use Zoom to frame your alert right on the video.",
             advanceOn: "click-next",
         },
         {
             target: "#step-4",
             title: "Render and download",
-            body: "Click Process Video to render your first alert. We'll wait while it processes.",
+            body: "Set your output size, export preset, and audio (fade + normalize) here, then hit Process Video to render your first alert. We'll wait while it processes.",
             advanceOn: "app:processing-complete",
             hint: "Click Process Video to continue",
         },
