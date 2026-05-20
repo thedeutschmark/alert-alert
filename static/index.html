@@ -328,34 +328,6 @@
                         <div class="trim-duration-display">
                             <span id="trim-duration">Duration: 0:00.00</span>
                         </div>
-                        <div class="trim-slider-row">
-                            <div class="trim-audio-options">
-                                <label class="trim-label trim-inline" for="audio-fade-mode">
-                                    <span>Audio Fade</span>
-                                    <select id="audio-fade-mode" class="trim-select">
-                                        <option value="none" selected>Off</option>
-                                        <option value="start">Start</option>
-                                        <option value="end">End</option>
-                                        <option value="both">Both</option>
-                                    </select>
-                                </label>
-                                <label class="trim-label trim-inline" for="setting-audio-fade-duration">
-                                    <span>Fade Length</span>
-                                    <select id="setting-audio-fade-duration" class="trim-select">
-                                        <option value="0.20">Short (0.20s)</option>
-                                        <option value="0.35" selected>Medium (0.35s)</option>
-                                        <option value="0.50">Long (0.50s)</option>
-                                        <option value="1.00">Extra (1.00s)</option>
-                                    </select>
-                                </label>
-                                <label class="trim-checkbox" for="setting-normalize-audio">
-                                    <input type="checkbox" id="setting-normalize-audio" checked>
-                                    <span>Normalize Audio</span>
-                                    <span class="tooltip-icon"
-                                        data-tooltip="Matches loudness to a consistent target (~-16 LUFS) so alerts are more even in volume.">?</span>
-                                </label>
-                            </div>
-                        </div>
                     </div>
 
                     <p id="crop-coords" class="info-label">Crop: X=0 Y=0</p>
@@ -397,6 +369,32 @@
                                 <option value="3">3 seconds</option>
                                 <option value="5">5 seconds</option>
                             </select>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="audio-fade-mode">Audio Fade</label>
+                            <select id="audio-fade-mode" class="settings-select">
+                                <option value="none" selected>Off</option>
+                                <option value="start">Start</option>
+                                <option value="end">End</option>
+                                <option value="both">Both</option>
+                            </select>
+                        </div>
+                        <div class="settings-section">
+                            <label class="settings-label" for="setting-audio-fade-duration">Fade Length</label>
+                            <select id="setting-audio-fade-duration" class="settings-select">
+                                <option value="0.20">Short (0.20s)</option>
+                                <option value="0.35" selected>Medium (0.35s)</option>
+                                <option value="0.50">Long (0.50s)</option>
+                                <option value="1.00">Extra (1.00s)</option>
+                            </select>
+                        </div>
+                        <div class="settings-section">
+                            <label class="trim-checkbox" for="setting-normalize-audio">
+                                <input type="checkbox" id="setting-normalize-audio" checked>
+                                <span>Normalize Audio</span>
+                                <span class="tooltip-icon"
+                                    data-tooltip="Matches loudness to a consistent target (~-16 LUFS) so alerts are more even in volume.">?</span>
+                            </label>
                         </div>
                     </div>
 
