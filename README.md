@@ -2,7 +2,7 @@
   <img src="docs/hero.png" alt="Alert! Alert! — create consistent stream alerts from any source" width="100%">
 </p>
 
-**Create consistent stream alerts from any source. Download, edit, export. Fast.**
+**Create consistent stream alerts from any source. From idea to done, fast.**
 
 Alert! Alert! is a small native desktop app for streamers: pull in a clip from a URL or a local file, crop and trim it, and export a clean alert — without opening a full editor.
 
