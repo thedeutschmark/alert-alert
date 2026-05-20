@@ -14,7 +14,7 @@ const App = (() => {
     ]);
 
     // State
-    const DEFAULT_PREVIEW_VOLUME = 50;
+    const DEFAULT_PREVIEW_VOLUME = 15;  // start low — source clips can be very loud
     let videoUrl = "";
     let videoDuration = 0;
     let jobId = "";
