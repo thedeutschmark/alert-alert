@@ -102,16 +102,17 @@ Produces `dist/alert-alert.exe` (native build — `AlertNative.spec` excludes Qt
 
 ---
 
-## You might also like
+## deutschmark's other apps
 
-Part of the [deutschmark](https://github.com/thedeutschmark) stream toolset — tools built to work together:
+<table>
+<tr><td><img src=".github/apps/clipline.svg" width="34"></td><td><b><a href="https://github.com/thedeutschmark/clipline">Clipline</a></b><br>Livestream VODs → shortform clips with auto-captions.</td></tr>
+<tr><td><img src=".github/apps/toolset.svg" width="34"></td><td><b><a href="https://toolset.deutschmark.online">The Stream Toolset</a></b><br>OBS overlays + companion apps. One login, no subscriptions.</td></tr>
+<tr><td><img src=".github/apps/forgetmenot.png" width="34"></td><td><b><a href="https://github.com/thedeutschmark/forgetmenot">ForgetMeNot</a></b><br>A Twitch chat bot that remembers your regulars.</td></tr>
+<tr><td><img src=".github/apps/collab.svg" width="34"></td><td><b><a href="https://collab.deutschmark.online">Collab Planner</a></b><br>Finds collab windows from streamers' broadcast history.</td></tr>
+<tr><td><img src=".github/apps/pathos.svg" width="34"></td><td><b><a href="https://yourpathos.app">P.A.T.H.O.S.</a></b><br>AI career platform — resume tailoring + ATS scoring.</td></tr>
+</table>
 
-| Tool | What it is |
-| --- | --- |
-| **[Clipline](https://github.com/thedeutschmark/clipline)** | Turn livestream VODs into shortform clips with auto-captions. |
-| **[The Stream Toolset](https://toolset.deutschmark.online)** | OBS overlays + companion apps. One login, no subscriptions. |
-
-<sub>See everything → [github.com/thedeutschmark](https://github.com/thedeutschmark)</sub>
+<sub>All projects → <a href="https://github.com/thedeutschmark">github.com/thedeutschmark</a></sub>
 
 ---
 
