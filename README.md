@@ -102,6 +102,19 @@ Produces `dist/alert-alert.exe` (native build — `AlertNative.spec` excludes Qt
 
 ---
 
+## You might also like
+
+Part of the [deutschmark](https://github.com/thedeutschmark) stream toolset — tools built to work together:
+
+| Tool | What it is |
+| --- | --- |
+| **[Clipline](https://github.com/thedeutschmark/clipline)** | Turn livestream VODs into shortform clips with auto-captions. |
+| **[The Stream Toolset](https://toolset.deutschmark.online)** | OBS overlays + companion apps. One login, no subscriptions. |
+
+<sub>See everything → [github.com/thedeutschmark](https://github.com/thedeutschmark)</sub>
+
+---
+
 ## License
 
 AGPL-3.0 — see [LICENSE](LICENSE). Third-party runtime notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
