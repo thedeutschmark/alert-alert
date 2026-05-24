@@ -1,7 +1,24 @@
 Alert! Alert! - Third-Party Notices
 ===================================
 
-This application may download and use third-party tools at runtime:
+Alert! Alert! is a thin native frontend that orchestrates two independent
+third-party tools for the work it cannot do itself: fetching media from
+URLs (yt-dlp) and decoding/encoding media (FFmpeg).
+
+Alert! Alert! does NOT contain any video-downloading code. URL-based loading
+is delegated entirely to yt-dlp, an independent open-source project that
+Alert! Alert!'s authors do not develop, modify, or control. Media decoding
+and encoding is delegated to FFmpeg, an independent open-source project.
+
+Neither yt-dlp nor FFmpeg is bundled with Alert! Alert!. On first launch,
+if these tools are not detected on your system, Alert! Alert! offers a
+one-click download that fetches the official binaries directly from their
+maintainers' release channels — the downloads are not proxied, rehosted,
+or modified by Alert! Alert!.
+
+----------------------------------------------------------------------
+External tools (NOT bundled, downloaded on demand from upstream)
+----------------------------------------------------------------------
 
 1) FFmpeg
    Project: https://ffmpeg.org/
@@ -15,10 +32,12 @@ This application may download and use third-party tools at runtime:
    Runtime download source used by this app:
    https://github.com/yt-dlp/yt-dlp/releases/latest
 
-The downloaded binaries are stored in a per-user runtime directory
+Downloaded binaries are stored in a per-user runtime directory
 (LOCALAPPDATA\AlertAlert\runtime\bin on Windows).
 
-This application is built with and bundles the following library:
+----------------------------------------------------------------------
+Bundled libraries
+----------------------------------------------------------------------
 
 3) Qt for Python (PySide6) and the Qt framework
    Project: https://doc.qt.io/qtforpython-6/
@@ -26,4 +45,7 @@ This application is built with and bundles the following library:
    License information: https://doc.qt.io/qtforpython-6/licenses.html
    The packaged executable dynamically links the bundled Qt shared libraries.
 
-Please review upstream licenses and terms before redistribution.
+----------------------------------------------------------------------
+
+Please review upstream licenses and terms before redistribution. Alert!
+Alert! itself is licensed under the Apache License 2.0; see LICENSE.

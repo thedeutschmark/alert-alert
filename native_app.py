@@ -2146,6 +2146,59 @@ def run_selftest_batch(result_path):
     return code["v"]
 
 
+# Bump when the disclaimer text changes materially (forces re-acceptance).
+# Stored under its own QSettings key so it can never be coincidentally
+# satisfied by the onboarding/tour flag or any other dev-set state.
+DISCLAIMER_VERSION = "1"
+
+
+def require_disclaimer_acceptance() -> bool:
+    """One-time acceptable-use acknowledgment. Returns True if accepted, False otherwise.
+
+    Gated on its own dedicated QSettings key (disclaimer/accepted_version);
+    never reuse `onboarded` or other flags here — a dev clearing the tour state
+    must not bypass legal acceptance.
+    """
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QMessageBox
+
+    settings = QSettings("deutschmark", "AlertAlert")
+    if settings.value("disclaimer/accepted_version", "", type=str) == DISCLAIMER_VERSION:
+        return True
+
+    box = QMessageBox()
+    box.setWindowTitle("Alert! Alert! — Acceptable use")
+    box.setIcon(QMessageBox.Information)
+    box.setTextFormat(Qt.RichText)
+    box.setText("<b>Before you start using Alert! Alert!</b>")
+    box.setInformativeText(
+        "Alert! Alert! is a general-purpose video utility. It does not download, "
+        "host, or distribute any copyrighted content. URL loading is delegated to "
+        "<b>yt-dlp</b> &mdash; an independent open-source project &mdash; and media "
+        "decoding/encoding to <b>FFmpeg</b>. Alert! Alert! does not contain any "
+        "video-downloading code itself.<br><br>"
+        "<b>You are solely responsible</b> for ensuring you have the legal right to "
+        "download, modify, or redistribute any content you process with this tool. "
+        "Use it on video you own, video you have permission to use, or content "
+        "available under licenses that permit reuse. Respect the copyright of the "
+        "original creators and the terms of service of any platform you interact "
+        "with.<br><br>"
+        "The authors of Alert! Alert! accept <b>no liability</b> for misuse. The "
+        "software is provided \"as is\" without warranty of any kind, as set out "
+        "in the LICENSE file."
+    )
+    accept_btn = box.addButton("I understand and accept", QMessageBox.AcceptRole)
+    quit_btn = box.addButton("Quit", QMessageBox.RejectRole)
+    # Default to Quit so Enter doesn't auto-accept legal terms via muscle memory.
+    box.setDefaultButton(quit_btn)
+    box.exec()
+
+    if box.clickedButton() is accept_btn:
+        settings.setValue("disclaimer/accepted_version", DISCLAIMER_VERSION)
+        return True
+    return False
+
+
 def main():
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
@@ -2164,6 +2217,8 @@ def main():
     if QSettings("deutschmark", "AlertAlert").value("show_console", False, type=bool) \
             or "--console" in sys.argv:
         attach_console()
+    if not require_disclaimer_acceptance():
+        return 0
     win = MainWindow()
     win.show()
     return app.exec()

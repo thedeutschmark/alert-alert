@@ -9,7 +9,7 @@ Alert! Alert! is a small native desktop app for streamers: pull in a clip from a
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/PySide6-Native-41cd52?logo=qt&logoColor=white)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-Powered-orange?logo=ffmpeg&logoColor=white)
-![License](https://img.shields.io/badge/License-AGPL_v3-blue)
+![License](https://img.shields.io/badge/License-Apache_2.0-blue)
 
 ---
 
@@ -116,9 +116,17 @@ Produces `dist/alert-alert.exe` (native build — `AlertNative.spec` excludes Qt
 
 ---
 
+## Acceptable use & disclaimer
+
+Alert! Alert! is a general-purpose video utility. It does not download, host, or distribute any copyrighted content. URL loading is delegated to **yt-dlp** — an independent open-source project — and media decoding/encoding to **FFmpeg**. Alert! Alert! does not contain any video-downloading code itself; see [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+
+**You are solely responsible** for ensuring you have the legal right to download, modify, or redistribute any content you process with this tool. Use it on video you own, video you have permission to use, or content available under licenses that permit reuse (Creative Commons, public domain, fair use under your local law). Respect the terms of service of any platform you interact with and the copyright of the original creators.
+
+The authors of Alert! Alert! accept no liability for misuse. The software is provided "as is" without warranty of any kind, as set out in the LICENSE file. The first launch of the app requires you to acknowledge this disclaimer before use.
+
 ## License
 
-AGPL-3.0 — see [LICENSE](LICENSE). Third-party runtime notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
+Apache License 2.0 — see [LICENSE](LICENSE). Third-party runtime notices are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).
 
 ## Credits
 

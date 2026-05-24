@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **License**: Relicensed from AGPL-3.0 to **Apache License 2.0**. AGPL's network-use clause did not apply meaningfully to a desktop-only app; Apache 2.0 better fits the project's posture (thin frontend orchestrating third-party tools) with explicit warranty disclaimer, limitation of liability, and patent grant. See `LICENSE`.
+- **THIRD_PARTY_NOTICES**: Rewritten to make clear that Alert! Alert! does not contain any video-downloading code &mdash; URL loading is delegated to the independent yt-dlp project, which is fetched from upstream on demand and not bundled or modified.
+
+### Added
+- **First-launch acceptable-use acknowledgment**: A one-time disclaimer dialog must be accepted before the main window opens, clarifying that the user is solely responsible for the copyright/legality of any content they process. Stored under a dedicated `disclaimer/accepted_version` QSettings key (not reused from onboarding) and version-gated so the disclaimer can be re-prompted if it materially changes.
+- **README**: New "Acceptable use & disclaimer" section.
+
 ## [1.3.1] - 2026-02-27
 
 ### Added
